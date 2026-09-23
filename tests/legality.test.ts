@@ -65,6 +65,23 @@ describe('illegal actions are refused with reasons', () => {
     expect(v.checks.find((c) => c.ok === false)!.label).toContain('冷却');
   });
 
+  test('fractional or non-finite launch counts are refused without changing inventory', () => {
+    const { s } = duel();
+    must(s, { type: 'ADVANCE', until: 1000 });
+    detectAll(s);
+    const trackId = Object.values(s.state.knowledge['b1']!).find((t) => t.quality === 'FIRE_CONTROL')!.id;
+    const before = JSON.stringify(s.state);
+    for (const count of [1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const cmd = { type: 'LAUNCH', unitId: 'b1', mountId: 'vls', weaponId: 'asm-x', count, trackId } as const;
+      expect(failed(s, cmd).join()).toContain('正整数');
+      expect(s.dispatch(cmd).ok).toBe(false);
+      expect(JSON.stringify(s.state)).toBe(before);
+    }
+    must(s, { type: 'LAUNCH', unitId: 'b1', mountId: 'vls', weaponId: 'asm-x', count: 1, trackId });
+    expect(s.state.units['b1']!.mounts['vls']!.ammo['asm-x']).toBe(15);
+    expect(s.state.groups['blue-MG1']!.count).toBe(1);
+  });
+
   test('out of range', () => {
     const { s } = duel(4000); // closer than asm-x min range 5 km
     must(s, { type: 'ADVANCE', until: 1000 });

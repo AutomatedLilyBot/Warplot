@@ -109,7 +109,7 @@ export function planRoute(
     const v = Math.min(wp.speedMps ?? cls.maxSpeedMps, cls.maxSpeedMps);
     const last = i === waypoints.length - 1;
 
-    if (!last) {
+    if (!last && v > 0) {
       const dA = Math.abs(v * v - u * u) / (2 * acc);
       if (dA >= L) {
         u = b.piece(dir, u, v > u ? acc : -acc, L);
@@ -120,7 +120,9 @@ export function planRoute(
       return;
     }
 
-    // Final leg: must end at rest.
+    // The final waypoint and any zero-speed waypoint must be reached at rest.
+    // Zero specifies the arrival speed, so use the class speed as the leg's cruise cap.
+    const cruise = v > 0 ? v : cls.maxSpeedMps;
     const brakeFrom = (w: number) => (w * w) / (2 * acc);
     if (brakeFrom(u) > L) {
       // Cannot stop in time at max decel: brake harder (simplification, logged via plan only).
@@ -129,13 +131,13 @@ export function planRoute(
       u = 0;
       return;
     }
-    if (u <= v) {
-      const dA = (v * v - u * u) / (2 * acc);
-      const dB = brakeFrom(v);
+    if (u <= cruise) {
+      const dA = (cruise * cruise - u * u) / (2 * acc);
+      const dB = brakeFrom(cruise);
       if (dA + dB <= L) {
         b.piece(dir, u, acc, dA);
-        b.piece(dir, v, 0, L - dA - dB);
-        b.piece(dir, v, -acc, dB);
+        b.piece(dir, cruise, 0, L - dA - dB);
+        b.piece(dir, cruise, -acc, dB);
       } else {
         const vp = Math.sqrt((2 * acc * L + u * u) / 2);
         const d1 = (vp * vp - u * u) / (2 * acc);
@@ -143,12 +145,12 @@ export function planRoute(
         b.piece(dir, vp, -acc, L - d1);
       }
     } else {
-      const dA = (u * u - v * v) / (2 * acc);
-      const dB = brakeFrom(v);
+      const dA = (u * u - cruise * cruise) / (2 * acc);
+      const dB = brakeFrom(cruise);
       if (dA + dB <= L) {
         b.piece(dir, u, -acc, dA);
-        b.piece(dir, v, 0, L - dA - dB);
-        b.piece(dir, v, -acc, dB);
+        b.piece(dir, cruise, 0, L - dA - dB);
+        b.piece(dir, cruise, -acc, dB);
       } else {
         const dB2 = brakeFrom(u);
         b.piece(dir, u, 0, L - dB2);

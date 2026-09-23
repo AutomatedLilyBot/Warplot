@@ -107,6 +107,7 @@ export function checkLaunch(
 ): { ok: boolean; checks: Explanation[]; earliest?: SimTime; plan?: LaunchPlan } {
   const c = commonChecks(ctx, s, cmd.unitId, cmd.mountId, cmd.weaponId, cmd.trackId, cmd.count, ['anti_ship', 'gun']);
   const { checks, unit, mount, weapon, track } = c;
+  checks.push(check('发射数量须为正整数', Number.isSafeInteger(cmd.count) && cmd.count > 0));
   if (!unit || !mount || !weapon || !track || track.estimate.kind !== 'position')
     return { ok: false, checks, earliest: c.earliest };
 
