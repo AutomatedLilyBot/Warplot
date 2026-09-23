@@ -208,6 +208,8 @@ export function checkEngage(
     const free = Math.floor(capacityFree(ctx, unit, 'fire_control') / fcPer);
     channels = Math.min(cmd.channels ?? free, free);
     checks.push(check(`可用火控通道 ${free}，本次使用 ${channels}`, channels >= 1));
+  } else if (cmd.channels !== undefined && cmd.channels > 1) {
+    checks.push(check(`${weapon.name} 不占用火控通道，每个发射装置只有 1 个交战通道（申请 ${cmd.channels}）`, false));
   }
   if (mount.kind === 'turret') checks.push(checkExclusiveFree(unit, mount.resource));
   if (!allOk(checks) || !group) return { ok: false, checks, earliest: c.earliest };

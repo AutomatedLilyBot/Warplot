@@ -77,6 +77,15 @@ describe('interception bounds', () => {
     expect((eng.window.end - eng.window.start) / 1000).toBeCloseTo((3500 - 300) / 290, 0);
   });
 
+  test('weapons without fire-control channels refuse more than one engagement channel', () => {
+    const { s, missileTrack } = raid(90);
+    const cmd = { type: 'ENGAGE', unitId: 'b1', mountId: 'ciws', weaponId: 'ciws-burst', trackId: missileTrack } as const;
+    const v = s.check({ ...cmd, channels: 3 });
+    expect(v.ok).toBe(false);
+    expect(JSON.stringify(v.checks)).toContain('每个发射装置只有 1 个交战通道');
+    expect(s.check({ ...cmd, channels: 1 }).ok).toBe(true);
+  });
+
   test('full raid: intercept then impact, author picks within bounds; inventory is conserved', () => {
     const { s, missileTrack } = raid(0);
     const total0 = inventory(s.state);
