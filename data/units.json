@@ -1,0 +1,29 @@
+[
+  {
+    "id": "ddg", "name": "驱逐舰", "category": "ship",
+    "maxSpeedMps": 16, "maxAccelMps2": 0.3, "maxSlewRateDegS": 3, "signature": 1.0,
+    "sensors": ["mfr", "esm"],
+    "mounts": [
+      { "id": "vls", "name": "垂直发射系统", "kind": "vls", "weapons": ["sam-std", "asm-x"], "capacity": 64, "launchIntervalS": 1 },
+      {
+        "id": "ciws", "name": "右舷近防炮", "kind": "turret", "weapons": ["ciws-burst"], "capacity": 40, "launchIntervalS": 1,
+        "resource": "ciws_stbd", "azimuthDeg": [-170, 10], "elevationDeg": [-10, 85], "traverseRateDegS": 115,
+        "blindZones": [{ "label": "舰桥遮挡", "azDeg": [-12, 10], "elDeg": [-10, 15] }]
+      },
+      { "id": "rail", "name": "舰首轴线电磁炮", "kind": "fixed", "weapons": ["rail-slug"], "capacity": 40, "launchIntervalS": 6, "boresight": [1, 0, 0], "halfAngleDeg": 2 }
+    ],
+    "resources": [
+      { "id": "hull_attitude", "kind": "attitude" },
+      { "id": "hull_translation", "kind": "exclusive" },
+      { "id": "fire_control", "kind": "capacity", "capacity": 4 },
+      { "id": "illuminator", "kind": "capacity", "capacity": 2 },
+      { "id": "ciws_stbd", "kind": "exclusive" }
+    ]
+  },
+  {
+    "id": "uav", "name": "侦察无人机", "category": "uav",
+    "maxSpeedMps": 60, "maxAccelMps2": 2, "maxSlewRateDegS": 10, "signature": 0.3,
+    "sensors": ["uav-radar"], "mounts": [],
+    "resources": [{ "id": "hull_attitude", "kind": "attitude" }, { "id": "hull_translation", "kind": "exclusive" }]
+  }
+]

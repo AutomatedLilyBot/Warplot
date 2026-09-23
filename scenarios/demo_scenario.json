@@ -1,0 +1,43 @@
+{
+  "id": "demo-strait",
+  "name": "海峡遭遇战（演示）",
+  "epoch": "07:40:00",
+  "signalSpeedMps": 299792458,
+  "sides": [{ "id": "blue", "name": "蓝方" }, { "id": "red", "name": "红方" }],
+  "referencePlanes": [{ "id": "sea", "name": "海平面", "origin": [0, 0, 0], "normal": [0, 0, 1] }],
+  "obstacles": [{ "id": "island", "name": "礁岛", "center": [130000, -40000, -2000], "radiusM": 6000 }],
+  "units": [
+    {
+      "id": "blue-ddg-01", "name": "Blue-DDG-01", "side": "blue", "classId": "ddg",
+      "position": [0, 0, 0], "velocity": [8, 0, 0], "sensorsOn": ["mfr", "esm"],
+      "loadout": { "vls": { "sam-std": 48, "asm-x": 16 }, "ciws": { "ciws-burst": 30 }, "rail": { "rail-slug": 40 } }
+    },
+    {
+      "id": "blue-ddg-02", "name": "Blue-DDG-02", "side": "blue", "classId": "ddg",
+      "position": [0, 20000, 0], "velocity": [8, 0, 0], "sensorsOn": ["mfr", "esm"],
+      "loadout": { "vls": { "sam-std": 48, "asm-x": 16 }, "ciws": { "ciws-burst": 30 }, "rail": { "rail-slug": 40 } }
+    },
+    {
+      "id": "blue-uav-01", "name": "Blue-UAV-01", "side": "blue", "classId": "uav",
+      "position": [60000, 10000, 5000], "velocity": [40, 0, 0], "sensorsOn": ["uav-radar"], "loadout": {}
+    },
+    {
+      "id": "red-ddg-01", "name": "Red-DDG-01", "side": "red", "classId": "ddg",
+      "position": [260000, 0, 0], "velocity": [-8, 0, 0], "sensorsOn": ["mfr", "esm"],
+      "loadout": { "vls": { "sam-std": 40, "asm-x": 24 }, "ciws": { "ciws-burst": 30 }, "rail": { "rail-slug": 40 } }
+    },
+    {
+      "id": "red-ddg-02", "name": "Red-DDG-02", "side": "red", "classId": "ddg",
+      "position": [260000, 25000, 0], "velocity": [-8, 0, 0], "sensorsOn": ["mfr", "esm"],
+      "loadout": { "vls": { "sam-std": 40, "asm-x": 24 }, "ciws": { "ciws-burst": 30 }, "rail": { "rail-slug": 40 } }
+    },
+    {
+      "id": "red-uav-03", "name": "Red-UAV-03", "side": "red", "classId": "uav",
+      "position": [190000, 5000, 5000], "velocity": [-40, 0, 0], "sensorsOn": ["uav-radar"], "loadout": {}
+    }
+  ],
+  "datalinks": [
+    { "id": "blue-link", "name": "蓝方数据链", "side": "blue", "members": ["blue-ddg-01", "blue-ddg-02", "blue-uav-01"], "latencyS": 2 },
+    { "id": "red-link", "name": "红方数据链", "side": "red", "members": ["red-ddg-01", "red-ddg-02", "red-uav-03"], "latencyS": 4 }
+  ]
+}
