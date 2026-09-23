@@ -31,4 +31,12 @@ describe('architecture', () => {
       for (const i of imports) expect(i, `${f} imports ${i}`).not.toMatch(/\/(events|rules|state)\//);
     }
   });
+
+  test('React effects use block bodies (an expression body becomes the cleanup React calls)', () => {
+    for (const f of files(join(src, 'ui'))) {
+      const code = readFileSync(f, 'utf8');
+      const bad = [...code.matchAll(/use(Layout)?Effect\(\s*\(\)\s*=>(?!\s*\{)/g)];
+      expect(bad.length, `${f} has an expression-bodied effect`).toBe(0);
+    }
+  });
 });
