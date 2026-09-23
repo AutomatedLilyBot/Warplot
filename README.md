@@ -10,10 +10,13 @@
 
 ## 状态
 
-Phase 1（纯逻辑核心）+ Phase 2（单元测试与 golden scenarios）。尚无 UI。
+Phase 1（纯逻辑核心）+ Phase 2（测试与 golden scenarios）+ Phase 3（3D 地图与侧边栏）。
+
+需要 Node.js ≥ 20.19。
 
 ```bash
 npm install
+npm run dev            # 打开 http://localhost:5173 —— 3D 战术棋盘
 npm test               # 全部测试
 npm run test:golden    # 只跑 golden scenarios
 npm run golden:update  # 规则有意改动后重新生成期望输出（审阅 diff 后提交）
@@ -21,7 +24,14 @@ npm run coverage       # 覆盖率
 npm run typecheck
 ```
 
-想看引擎“讲出来的战斗”，直接读 `tests/golden/__golden__/*.txt`。
+想看引擎“讲出来的战斗”，直接读 `tests/golden/__golden__/*.txt`；或在界面的“想定”菜单里选一个示例剧本，直接在地图上重放。
+
+### 界面速览
+
+- 顶栏：想定/示例剧本、视角（上帝/各阵营）、镜头（透视/俯视/侧视）、保存/载入会话
+- 地图：左键旋转、右键平移、滚轮缩放；点击图标选中；“全景”复位
+- 侧栏：推进时间、裁定机会、查看所选对象、事件日志（蓝色关键字可点击定位）、命令台（JSON，先检查再执行）
+- 浏览器控制台里 `warplot` 是当前的 AppStore，可直接调用 `warplot.dispatch({...})`
 
 ## 最小用法
 

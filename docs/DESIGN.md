@@ -1,4 +1,4 @@
-# Warplot 设计文档（Phase 1）
+# Warplot 设计文档（Phase 1–3）
 
 > 智能战争棋盘 / 约束检验器：程序是“规则裁判 + 自动算数工具 + 智能棋盘”，作者才是指挥官。
 
@@ -22,8 +22,8 @@
 ## 2. 最小技术架构
 
 ```
-┌──────────────────────── UI（Phase 3+，未实现）────────────────────────┐
-│ Three.js 3D 地图 · 侧边栏 · 机会弹窗 · 分支树 · 日志导出               │
+┌──────────────── UI（Phase 3：src/ui React + src/renderer Three.js）─────┐
+│ 3D 地图 · 侧边栏 · 机会裁定 · 日志关键字定位 · 命令台（分支树见 Phase 4）│
 └──────────────▲──────────────────────────────────────┬──────────────────┘
                │ SideView / GodView（只读投影）        │ Command
 ┌──────────────┴──────────────────────────────────────▼──────────────────┐
@@ -153,6 +153,28 @@ E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, �
 
 核心新增 `chronicle(ctx, state, view)`：把事件日志渲染成可读的战斗编年（上帝或某一阵营视角），也可直接作为写作时的事实层参考。
 
+## 5.6 Phase 3：3D 地图与侧边栏
+
+```
+Session ──► AppStore（src/ui/store.ts）──► buildMapModel(ctx, history, view) ──► TacticalMap.setModel()
+                 ▲                              （纯函数，已测试不泄漏）            （只画 MapModel）
+                 └──────── dispatch(Command) ◄── 侧边栏 / 命令台 / 机会表单
+```
+
+- **MapModel**（`src/ui/mapModel.ts`）：把上帝视角或某阵营的投影压成“要画的东西”列表。阵营模型只由 `projectSideView` 构建，敌方身份/位置无法进入渲染器（有测试）。
+  - 单位：位置、舰首方向、已走航迹（沿命令历史逐段采样，分段匀加速运动的分段点即精确折线）、计划航路；
+  - 弹群：当前位置、发射点→瞄准点弹道；发射方只看到发射数量；
+  - 航迹：多平台合并取最新；纯方位航迹画方位线，不给位置。
+- **TacticalMap**（`src/renderer/TacticalMap.ts`，纯 Three.js，不依赖 React/引擎）：
+  - 世界坐标米、+Z 向上；渲染坐标 = (世界 − 浮动原点) / 1000（km）。聚焦某单位即把浮动原点移过去；
+  - 镜头：透视（可旋转）/ 俯视 / 侧视（正交，沿参考面法向或面内方向）；
+  - 参考面由 origin + normal 定义，网格按场景尺度自动取整；每个单位有到参考面的高度投影线与落点；
+  - 图标与文字标签按屏幕像素定尺寸（任意缩放都清晰）；点击拾取单位/弹群/航迹。
+- **侧边栏**：时钟与推进（下一事件 / 下一机会 / +1 分 / +10 分）、撤销/重做、机会裁定表单（上帝视角；阵营视角只提示“切换到上帝视角”）、所选对象详情（传感器开关可直接下令）、态势列表、事件日志（关键字可点击定位）、JSON 命令台（模板 + 检查 + 执行）。
+- **显示层转义**：航迹 `blue-T1` 显示为 `7001`（上帝视角加阵营前缀），弹群 `red-MG3` 显示为 `MG3`；核心 id 不变。
+- **会话**：自动保存到浏览器本地（仅作便利），可下载/载入会话 JSON；示例剧本（golden scripts）可在“想定”菜单中直接重放。
+- **架构守卫**：`tests/architecture.test.ts` 保证 `core/state/rules/events` 不引用 three/react/DOM，渲染器不引用引擎内部。
+
 ## 6. 目录结构
 
 ```
@@ -164,8 +186,8 @@ E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, �
   /state         defs（静态定义）· types（运行时状态）· load · view（阵营/上帝投影）
   /rules         kinematics · world · search · detection · comms · arcs · attitude · resources · weapons
   /events        types（命令/事件/机会）· engine · scheduler · session · export · chronicle
-  /renderer      （Phase 3）
-  /ui            （Phase 3）
+  /renderer      frame（浮动原点/参考面基）· glyphs（图标/标签纹理）· TacticalMap
+  /ui            mapModel · labels · store · content · App.tsx · main.tsx · styles.css
 /tests           vitest 单元测试
   /golden        scripts/*.json（剧本）· __golden__/*.txt（期望的战斗编年）· runner.ts
 ```
@@ -176,8 +198,8 @@ E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, �
 
 | 推迟到 | 功能 |
 |---|---|
-| Phase 3 | Three.js 3D 地图（Top / Perspective / Side 视图、参考平面、高度投影线、轨迹线、`render = world − local_origin`）、侧边栏 |
-| Phase 4 | 阵营视图切换 UI、机会弹窗、合法动作置灰提示、undo/branch UI、日志导出按钮 |
+| ~~Phase 3~~ | 已完成：3D 地图（透视/俯视/侧视、参考面、高度投影线、轨迹、浮动原点）、侧边栏、阵营视角切换、基础机会裁定、撤销/重做 |
+| Phase 4 | 机会弹窗（替代侧栏表单）、按单位列出合法动作并置灰说明原因（替代 JSON 命令台）、地图上点选航路点、分支树 UI、日志/因果链导出与可视化、时间轴预览（不提交地查看未来位置） |
 | Phase 5 | 更多武器规则与视觉增强 |
 | 待定 | 航迹合并/去关联工具、数据链持续共享（目前为一次性快照）、命令本身的通信延迟、弹群中段修正/重新瞄准、按距离分级的传感器质量上限、雷达地平线、损伤模型（目前只记录命中数，由作者设状态） |
 | 不做 | LLM、AI 指挥、Monte Carlo、完整 EW、复杂航空作战、潜艇、后勤、轨道力学、六自由度/高精度动力学 |
