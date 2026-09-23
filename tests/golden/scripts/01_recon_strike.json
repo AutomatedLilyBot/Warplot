@@ -1,0 +1,32 @@
+{
+  "name": "01 无人机引导打击",
+  "description": "驱逐舰电磁静默，无人机发现目标并经数据链传递；数据到达前不得发射；到达后发射，作者裁定命中。",
+  "scenario": "recon_strike.json",
+  "steps": [
+    { "note": "开局：双方各有一个探测机会" },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "time": "08:00:00", "pending": ["blue-OPP1", "red-OPP1"] } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "WEAPON_SUPPORT" } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "red-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "BEARING_ONLY" } } },
+    { "expect": { "knows": { "blue-uav-01": ["blue-T1"], "blue-ddg-01": [], "red-ddg-01": ["red-T1"] }, "sideExcludes": { "blue": ["red-ddg-01", "Red-DDG-01"], "red": ["blue-uav-01", "Blue-UAV-01"] } } },
+
+    { "note": "驱逐舰还没有航迹：发射非法" },
+    { "reject": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "vls", "weaponId": "asm-x", "count": 6, "trackId": "blue-T1" }, "because": "本平台没有航迹" },
+    { "do": { "type": "TRANSMIT", "linkId": "blue-link", "from": "blue-uav-01", "to": "blue-ddg-01", "trackId": "blue-T1" } },
+    { "reject": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "vls", "weaponId": "asm-x", "count": 6, "trackId": "blue-T1" }, "because": "报文", "earliest": "08:00:02.001" },
+
+    { "note": "推进到报文到达" },
+    { "do": { "type": "ADVANCE", "stopAtNotable": true } },
+    { "expect": { "time": "08:00:02.001", "knows": { "blue-ddg-01": ["blue-T1"] }, "quality": { "blue-ddg-01.blue-T1": "WEAPON_SUPPORT" } } },
+    { "do": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "vls", "weaponId": "asm-x", "count": 6, "trackId": "blue-T1" } },
+    { "expect": { "ammo": { "blue-ddg-01.vls.asm-x": 10 }, "groupCount": { "blue-MG1": 6 } } },
+
+    { "note": "弹群飞行约 690 s，到达后作者裁定命中数" },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "pending": ["blue-OPP2"], "bounds": { "blue-OPP2": [0, 6] } } },
+    { "reject": { "type": "RESOLVE", "opportunityId": "blue-OPP2", "decision": { "kind": "impact", "hits": 7 } }, "because": "合法区间" },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP2", "decision": { "kind": "impact", "hits": 2, "note": "两枚命中舰体中部" } } },
+    { "do": { "type": "SET_UNIT_STATUS", "unitId": "red-ddg-01", "status": "damaged", "note": "作者裁定：动力受损" } },
+    { "expect": { "hits": { "red-ddg-01": 2 }, "pending": [] } }
+  ]
+}

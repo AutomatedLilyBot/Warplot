@@ -10,13 +10,18 @@
 
 ## 状态
 
-Phase 1（纯逻辑核心）+ 核心单元测试。尚无 UI。
+Phase 1（纯逻辑核心）+ Phase 2（单元测试与 golden scenarios）。尚无 UI。
 
 ```bash
 npm install
-npm test          # vitest
+npm test               # 全部测试
+npm run test:golden    # 只跑 golden scenarios
+npm run golden:update  # 规则有意改动后重新生成期望输出（审阅 diff 后提交）
+npm run coverage       # 覆盖率
 npm run typecheck
 ```
+
+想看引擎“讲出来的战斗”，直接读 `tests/golden/__golden__/*.txt`。
 
 ## 最小用法
 

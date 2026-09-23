@@ -1,0 +1,48 @@
+{
+  "name": "02 反舰饱和攻击的分层防御",
+  "description": "红方齐射 8 枚反舰导弹；蓝方以舰空导弹拦截，近防炮起初被舰桥遮挡，舰体转向以右舷对敌后才可交战；每层拦截数量由作者在合法区间内裁定。",
+  "scenario": "raid.json",
+  "steps": [
+    { "note": "开局：双方雷达互相发现" },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "pending": ["blue-OPP1", "red-OPP1"] } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL", "classification": "驱逐舰" } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "red-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL", "classification": "驱逐舰" } } },
+
+    { "note": "红方齐射" },
+    { "do": { "type": "LAUNCH", "unitId": "red-ddg-01", "mountId": "vls", "weaponId": "asm-x", "count": 8, "trackId": "red-T1" } },
+    { "expect": { "sideExcludes": { "blue": ["red-MG1"] } } },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "pending": ["blue-OPP2"] } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP2", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL", "classification": "反舰导弹群" } } },
+
+    { "note": "第一层：舰空导弹" },
+    { "do": { "type": "ENGAGE", "unitId": "blue-ddg-01", "mountId": "vls", "weaponId": "sam-std", "trackId": "blue-T2" } },
+    { "expect": { "ammo": { "blue-ddg-01.vls.sam-std": 24 } } },
+
+    { "note": "第二层：近防炮被舰桥遮挡 → 舰体转向右舷对敌" },
+    { "reject": { "type": "ENGAGE", "unitId": "blue-ddg-01", "mountId": "ciws", "weaponId": "ciws-burst", "trackId": "blue-T2" }, "because": "舰桥遮挡" },
+    { "do": { "type": "MANEUVER", "unitId": "blue-ddg-01", "label": "右舷对敌", "priority": 5, "durationS": 120,
+              "attitude": { "kind": "axis_cone", "bodyAxis": [0, -1, 0], "target": { "kind": "track", "trackId": "blue-T2" }, "halfAngleDeg": 20 } } },
+    { "reject": { "type": "ALIGN", "unitId": "blue-ddg-01", "mountId": "rail", "trackId": "blue-T1", "priority": 1 }, "because": "冲突" },
+    { "do": { "type": "ENGAGE", "unitId": "blue-ddg-01", "mountId": "ciws", "weaponId": "ciws-burst", "trackId": "blue-T2" } },
+
+    { "note": "舰空导弹窗口结束：作者裁定" },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "pending": ["blue-OPP3"], "bounds": { "blue-OPP3": [2, 6] } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP3", "decision": { "kind": "intercept", "intercepted": 5 } } },
+    { "expect": { "groupCount": { "red-MG1": 3 } } },
+
+    { "note": "近防炮窗口结束：区间按剩余数量收紧" },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "pending": ["blue-OPP4"] } },
+    { "reject": { "type": "RESOLVE", "opportunityId": "blue-OPP4", "decision": { "kind": "intercept", "intercepted": 3 } }, "because": "合法区间" },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP4", "decision": { "kind": "intercept", "intercepted": 2, "note": "最后一枚在 400 米处被打爆，碎片落在舰艏" } } },
+
+    { "note": "残余一枚到达" },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "pending": ["red-OPP2"], "bounds": { "red-OPP2": [0, 1] } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "red-OPP2", "decision": { "kind": "impact", "hits": 1 } } },
+    { "expect": { "hits": { "blue-ddg-01": 1 }, "groupCount": { "red-MG1": 0 } } }
+  ]
+}

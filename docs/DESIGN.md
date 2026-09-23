@@ -124,20 +124,50 @@ E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, �
 - 新约束与同级/更高优先级冲突 → 拒绝并解释；与更低优先级冲突 → 低优先级约束**挂起**，释放后自动**恢复**（均有事件）。
 - 姿态以最大转向速率沿最短弧 slerp；轴炮 `LAUNCH` 非法时给出“预计何时对准”。
 
+## 5.5 Phase 2：测试与 golden scenarios
+
+**单元测试**（`tests/*.test.ts`）按规则分文件：运动、探测、信息传播、合法性、姿态、资源、拦截、飞行、重放、视图、数据校验、杂项。
+`npm run coverage` 查看覆盖率（当前行覆盖约 98%）。
+
+**Golden scenarios**（`tests/golden/`）是“剧本 + 期望输出”：
+
+- `scripts/*.json`：一组步骤，逐步执行并即时断言；
+- `__golden__/*.txt`：该剧本的完整战斗编年（上帝视角事件 + 需要/产生/因果、非法命令的理由树、终局摘要、各阵营视角事件）。
+  任何规则改动导致的行为变化都会以文本 diff 的形式出现，可直接审阅。
+- 每个分支还会检查“仅凭命令列表重放 = 当前状态”。
+
+步骤类型：
+
+| 步骤 | 含义 |
+|---|---|
+| `{"note": "…"}` | 章节标题 |
+| `{"do": Command}` | 必须合法并执行 |
+| `{"reject": Command, "because": "…", "earliest"?: "HH:MM:SS.mmm"}` | 必须被拒绝，理由须包含该文字；可断言最早可行时间 |
+| `{"waitUntilLegal": Command}` | 推进到该命令最早可行时刻（不执行它） |
+| `{"expect": {...}}` | 断言：`time` `pending` `bounds` `ammo` `knows` `quality` `groupCount` `hits` `claims` `sideExcludes` |
+| `{"mark": "名字"}` / `{"fork": "分支", "at"?: "名字"}` / `{"switch": "分支"}` / `{"undo": n}` | 分支与撤销 |
+
+现有剧本：01 无人机引导打击（信息传播与因果链）· 02 分层防空（区间与瓶颈、姿态让出射界）· 03 轴炮与规避争夺舰体姿态 · 04 同一开局的两条分支。
+
+规则有意改动后运行 `npm run golden:update` 重新生成期望输出，审阅 diff 后提交。
+
+核心新增 `chronicle(ctx, state, view)`：把事件日志渲染成可读的战斗编年（上帝或某一阵营视角），也可直接作为写作时的事实层参考。
+
 ## 6. 目录结构
 
 ```
 /data            sensors.json · weapons.json · units.json（单位级别定义）
-/scenarios       demo_scenario.json
+/scenarios       demo_scenario.json · recon_strike.json · raid.json · axial_duel.json
 /docs            DESIGN.md
 /src
   /core          math（vec3, quat, geometry）· time · explain
   /state         defs（静态定义）· types（运行时状态）· load · view（阵营/上帝投影）
   /rules         kinematics · world · search · detection · comms · arcs · attitude · resources · weapons
-  /events        types（命令/事件/机会）· engine · scheduler · session · export
+  /events        types（命令/事件/机会）· engine · scheduler · session · export · chronicle
   /renderer      （Phase 3）
   /ui            （Phase 3）
 /tests           vitest 单元测试
+  /golden        scripts/*.json（剧本）· __golden__/*.txt（期望的战斗编年）· runner.ts
 ```
 
 数据先用 JSON（零依赖）；需要时可在加载层加 YAML 解析，核心不受影响。
@@ -160,3 +190,4 @@ E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, �
 - 拦截窗口 = 弹群处于 [最小, 最大] 射程（且在射界内）的时间段，交战循环时间已包含飞行时间。
 - 探测距离 = 传感器标称距离 × 目标特征系数（线性）。
 - 拦截弹在下达 `ENGAGE` 时即扣除（承诺发射量），以保证库存守恒可审计。
+- `TIME_ADVANCED`（时间在哪里停下）只在上帝视角可见：停顿时刻本身会暴露“某方在此刻有机会”。

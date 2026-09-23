@@ -9,4 +9,5 @@ export * from './events/types.js';
 export { applyCommand, createInitialState, pendingOpportunities, replay, validate } from './events/engine.js';
 export { Session, type SessionData } from './events/session.js';
 export { exportLog } from './events/export.js';
+export { chronicle, type ChronicleOptions } from './events/chronicle.js';
 export type { Ctx } from './rules/world.js';

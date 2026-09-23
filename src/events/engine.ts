@@ -683,7 +683,8 @@ function advance(ctx: Ctx, s: WorldState, cmd: Extract<Command, { type: 'ADVANCE
     if (s.time >= until) break;
   }
   const b = body('ADVANCE', `时间推进 ${clk(ctx, start)} → ${clk(ctx, s.time)}（${stoppedBy}）`, { data: { from: start, to: s.time } });
-  emit(s, ci, { kind: 'TIME_ADVANCED', truth: b, sides: allSides(ctx, b) });
+  // Where time stops is an author-level fact: a stop at T reveals that *someone* got a chance at T.
+  emit(s, ci, { kind: 'TIME_ADVANCED', truth: b });
 }
 
 function processScheduled(ctx: Ctx, s: WorldState, it: Scheduled, ci: number): { opportunity: boolean; notable: boolean } {
