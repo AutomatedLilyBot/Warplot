@@ -1,0 +1,18 @@
+{
+  "name": "warplot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smart war board / constraint checker for designing battle scenes in fiction",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
