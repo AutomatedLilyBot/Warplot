@@ -93,7 +93,8 @@ export function projectSideView(ctx: Ctx, s: WorldState, side: SideId): SideView
       launchTime: g.launchTime,
       arrivalTime: g.arrivalTime,
       position: groupPosition(g, s.time),
-      status: g.status === 'flying' && s.time < g.arrivalTime ? 'flying' : 'arrived',
+      // Time-based only: the owner knows its planned flight, not whether the salvo was shot down.
+      status: s.time < g.arrivalTime ? 'flying' : 'arrived',
     }));
 
   const tracks: Record<string, TrackView[]> = {};

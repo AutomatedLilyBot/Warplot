@@ -924,7 +924,8 @@ function resolveIntercept(
     causedBy: [e.commandEventId, o.eventId],
   });
   for (const cid of e.claimIds) releaseClaim(ctx, s, u, cid, ci, '交战结束', [ev.id]);
-  if (g && g.count === 0 && g.status === 'flying') expireGroup(ctx, s, g, ci, '全部被拦截', [ev.id]);
+  // Author-only: the launching side must not learn that its salvo was wiped out.
+  if (g && g.count === 0 && g.status === 'flying') expireGroup(ctx, s, g, ci, '全部被拦截', [ev.id], false);
 }
 
 function createImpactOpportunity(ctx: Ctx, s: WorldState, groupId: string, ci: number): boolean {
@@ -988,10 +989,10 @@ function resolveImpact(ctx: Ctx, s: WorldState, o: Extract<Opportunity, { kind: 
   expireGroup(ctx, s, g, ci, '已到达目标', [ev.id]);
 }
 
-function expireGroup(_ctx: Ctx, s: WorldState, g: MissileGroupState, ci: number, why: string, causedBy: string[]): void {
+function expireGroup(_ctx: Ctx, s: WorldState, g: MissileGroupState, ci: number, why: string, causedBy: string[], ownerSees = true): void {
   g.status = 'expended';
   const b = body('GROUP_EXPENDED', `${g.id} 结束（${why}）`, { actor: g.id });
-  emit(s, ci, { kind: 'GROUP_EXPENDED', truth: b, sides: { [g.side]: b }, causedBy });
+  emit(s, ci, { kind: 'GROUP_EXPENDED', truth: b, sides: ownerSees ? { [g.side]: b } : {}, causedBy });
 }
 
 /** Pure replay: fold a command list over the initial state. Throws on an illegal command. */
