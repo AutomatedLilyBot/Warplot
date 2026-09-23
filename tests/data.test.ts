@@ -31,6 +31,16 @@ describe('catalog validation', () => {
   ])('%s is rejected', (_name, raw, err) => {
     expect(() => buildCatalog(raw() as never)).toThrow(err);
   });
+
+  test.each([
+    ['zero acceleration', () => ({ unitClasses: [{ ...unitClasses[0], maxAccelMps2: 0 }] }), /maxAccelMps2/],
+    ['zero sensor reoffer time', () => ({ sensors: [{ ...sensors[0], reofferIntervalS: 0 }] }), /reofferIntervalS/],
+    ['zero weapon speed', () => ({ weapons: [{ ...weapons[0], speedMps: 0 }] }), /speedMps/],
+    ['invalid outcome bounds', () => ({ weapons: [{ ...weapons[0], terminalBounds: [0.8, 1.2] }] }), /terminalBounds/],
+    ['fractional mount capacity', () => ({ unitClasses: [{ ...unitClasses[0], mounts: [{ ...unitClasses[0]!.mounts[0], capacity: 1.5 }] }] }), /capacity/],
+  ])('%s is rejected', (_name, changed, err) => {
+    expect(() => buildCatalog({ sensors, weapons, unitClasses, ...changed() } as never)).toThrow(err);
+  });
 });
 
 describe('scenario validation', () => {
@@ -50,5 +60,21 @@ describe('scenario validation', () => {
     // 90° about +Z
     expect(q[2]).toBeCloseTo(Math.sin(Math.PI / 4));
     expect(q[3]).toBeCloseTo(Math.cos(Math.PI / 4));
+  });
+
+  test.each([
+    ['zero signal speed', { signalSpeedMps: 0 }, /signalSpeedMps/],
+    ['negative datalink latency', { datalinks: [{ id: 'L', name: 'L', side: 'blue', members: ['b1'], latencyS: -1 }] }, /latencyS/],
+    ['zero plane normal', { referencePlanes: [{ id: 'sea', name: 'sea', origin: [0, 0, 0], normal: [0, 0, 0] }] }, /normal/],
+  ])('%s is rejected', (_name, extra, err) => {
+    expect(() => createInitialState(miniCtx([ddg('b1', 'blue', [0, 0, 0])], extra as never))).toThrow(err);
+  });
+
+  test('negative or fractional loadout and non-finite route speed are rejected', () => {
+    for (const rounds of [-1, 1.5])
+      expect(() => createInitialState(miniCtx([ddg('b1', 'blue', [0, 0, 0], { loadout: { vls: { 'asm-x': rounds } } })]))).toThrow(/loadout/);
+    expect(() => createInitialState(miniCtx([ddg('b1', 'blue', [0, 0, 0], {
+      route: [{ position: [1000, 0, 0], speedMps: Infinity }],
+    })]))).toThrow(/speedMps/);
   });
 });

@@ -203,6 +203,7 @@ export function checkEngage(
 
   const fcPer = weapon.fireControlChannels ?? 0;
   let channels = 1;
+  if (cmd.channels !== undefined) checks.push(check('申请的火控通道数须为正整数', Number.isSafeInteger(cmd.channels) && cmd.channels > 0));
   if (fcPer > 0) {
     const free = Math.floor(capacityFree(ctx, unit, 'fire_control') / fcPer);
     channels = Math.min(cmd.channels ?? free, free);

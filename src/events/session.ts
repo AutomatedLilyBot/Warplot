@@ -158,6 +158,43 @@ export class Session {
   }
 
   static fromJSON(ctx: Ctx, data: SessionData): Session {
-    return new Session(ctx, structuredClone(data));
+    if (!data || data.scenarioId !== ctx.scenario.id || !data.nodes || !data.branches || !data.branches[data.current])
+      throw new Error('session data does not match the scenario or is incomplete');
+    if (!Number.isSafeInteger(data.seq) || data.seq < 0 || data.seq >= Number.MAX_SAFE_INTEGER)
+      throw new Error('session sequence is invalid');
+
+    const copy = structuredClone(data);
+    for (const id of Object.keys(copy.nodes)) {
+      const number = Number(id.slice(1));
+      if (!/^n[1-9]\d*$/.test(id) || !Number.isSafeInteger(number) || number > copy.seq)
+        throw new Error(`session sequence does not cover node ${id}`);
+    }
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+    const visit = (id: string): void => {
+      if (visited.has(id)) return;
+      const node = copy.nodes[id];
+      if (!node || node.id !== id || !node.command || typeof node.command.type !== 'string')
+        throw new Error(`invalid session node ${id}`);
+      if (visiting.has(id)) throw new Error(`cycle in session nodes at ${id}`);
+      visiting.add(id);
+      if (node.parent !== null) visit(node.parent);
+      visiting.delete(id);
+      visited.add(id);
+    };
+    for (const id of Object.keys(copy.nodes)) visit(id);
+    for (const [id, branch] of Object.entries(copy.branches)) {
+      if (!branch || branch.id !== id || (branch.head !== null && !copy.nodes[branch.head]) || !Array.isArray(branch.redo))
+        throw new Error(`invalid session branch ${id}`);
+      let head = branch.head;
+      for (const redo of [...branch.redo].reverse()) {
+        if (!copy.nodes[redo] || copy.nodes[redo]!.parent !== head) throw new Error(`invalid redo node ${redo}`);
+        head = redo;
+      }
+    }
+
+    const session = new Session(ctx, copy);
+    for (const id of Object.keys(copy.nodes)) session.stateAt(id);
+    return session;
   }
 }

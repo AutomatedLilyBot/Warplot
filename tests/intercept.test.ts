@@ -31,6 +31,15 @@ function inventory(st: WorldState): number {
 }
 
 describe('interception bounds', () => {
+  test('fractional fire-control channels are refused without reserving resources', () => {
+    const { s, missileTrack } = raid(0);
+    const before = JSON.stringify(s.state);
+    const cmd = { type: 'ENGAGE', unitId: 'b1', mountId: 'vls', weaponId: 'sam-std', trackId: missileTrack, channels: 1.5 } as const;
+    expect(s.check(cmd).ok).toBe(false);
+    expect(s.dispatch(cmd).ok).toBe(false);
+    expect(JSON.stringify(s.state)).toBe(before);
+  });
+
   test('SAM engagement: legal interval with a binding factor and explanation', () => {
     const { s, missileTrack } = raid(0);
     const r = must(s, { type: 'ENGAGE', unitId: 'b1', mountId: 'vls', weaponId: 'sam-std', trackId: missileTrack });

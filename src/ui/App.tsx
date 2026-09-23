@@ -137,8 +137,13 @@ function TopBar({ store }: { store: AppStore }) {
         hidden
         onChange={async (e) => {
           const f = e.target.files?.[0];
-          if (f) store.importSession(await f.text());
-          e.target.value = '';
+          try {
+            if (f) store.importSession(await f.text());
+          } catch (error) {
+            store.showError(`载入失败：${error instanceof Error ? error.message : String(error)}`);
+          } finally {
+            e.target.value = '';
+          }
         }}
       />
       <button onClick={() => confirm('清空当前想定的所有操作？') && store.resetScenario()}>重置</button>

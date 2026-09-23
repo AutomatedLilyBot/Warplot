@@ -12,6 +12,7 @@ import { type SimTime, formatClock, parseClock } from '../core/time.js';
 import { length, normalize, sub } from '../core/math/vec3.js';
 import { quatFromHeading, type Quat } from '../core/math/quat.js';
 import { type TrackQuality, TRACK_QUALITIES, qualityAtLeast, qualityRank } from '../state/defs.js';
+import { validateScenario } from '../state/load.js';
 import type { MissileGroupState, ResourceClaim, Track, UnitState, WorldState } from '../state/types.js';
 import type {
   ApplyResult,
@@ -51,6 +52,7 @@ const clk = (ctx: Ctx, t: SimTime) => formatClock(t, parseClock(ctx.scenario.epo
 // ---------------------------------------------------------------------------
 
 export function createInitialState(ctx: Ctx): WorldState {
+  validateScenario(ctx.scenario);
   const s: WorldState = {
     scenarioId: ctx.scenario.id,
     time: 0,
@@ -233,7 +235,9 @@ function validateInner(ctx: Ctx, s: WorldState, cmd: Command): Verdict {
         const tr = u.claims.find((cl) => cl.resource === 'hull_translation' && cl.status === 'active');
         c.push(check(tr ? `hull_translation 已被 ${tr.owner.label} 占用` : 'hull_translation 空闲', !tr));
       }
-      c.push(check('航路点速度非负', cmd.waypoints.every((w) => (w.speedMps ?? 0) >= 0)));
+      c.push(check('航路点位置为有限坐标、速度为非负有限值', cmd.waypoints.every((w) =>
+        Array.isArray(w.position) && w.position.length === 3 && w.position.every(Number.isFinite) &&
+        (w.speedMps === undefined || (Number.isFinite(w.speedMps) && w.speedMps >= 0)))));
       return verdict(c);
     }
     case 'SET_SENSOR': {

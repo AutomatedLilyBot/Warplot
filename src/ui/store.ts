@@ -84,10 +84,12 @@ export class AppStore {
   loadScenario(file: string, data?: SessionData): void {
     const scenario = scenarios[file];
     if (!scenario) throw new Error(`unknown scenario ${file}`);
+    const ctx: Ctx = { scenario: structuredClone(scenario), catalog };
+    const session = data ? Session.fromJSON(ctx, data) : new Session(ctx);
+    session.state; // validate before replacing the active session
     this.scenarioFile = file;
-    this.ctx = { scenario: structuredClone(scenario), catalog };
-    this.session = data ? Session.fromJSON(this.ctx, data) : new Session(this.ctx);
-    this.session.state; // throws early if a restored log no longer replays
+    this.ctx = ctx;
+    this.session = session;
     this.planeId = scenario.referencePlanes[0]?.id ?? '';
     this.selected = null;
     this.flash = null;
@@ -210,6 +212,11 @@ export class AppStore {
 
   clearFlash(): void {
     this.flash = null;
+    this.changed(false);
+  }
+
+  showError(text: string): void {
+    this.flash = { kind: 'error', text };
     this.changed(false);
   }
 }

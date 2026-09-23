@@ -7,6 +7,7 @@
 所有结论附带可展开的理由树，所有事件带因果链，可撤销、可分支、可导出 JSON。
 
 设计说明见 [docs/DESIGN.md](docs/DESIGN.md)。
+审查与修复记录见 [docs/ISSUES.md](docs/ISSUES.md)。
 
 ## 状态
 
