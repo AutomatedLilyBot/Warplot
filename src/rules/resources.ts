@@ -81,8 +81,10 @@ export function planAttitudeClaim(
 /** Re-derive the attitude goal from the unit's active claims at time t (mutates u). */
 export function refreshAttitudeGoal(ctx: Ctx, s: WorldState, u: UnitState, t: SimTime): void {
   const q = orientationAt(ctx, u, t);
-  const res = claimsFeasible(ctx, s, u, attitudeClaims(u), t);
-  u.attitude = { t0: t, q0: q, goal: res.ok ? res.q : null };
+  const active = attitudeClaims(u);
+  // No claims → hold the current attitude (no goal).
+  const res = active.length ? claimsFeasible(ctx, s, u, active, t) : null;
+  u.attitude = { t0: t, q0: q, goal: res?.ok ? res.q : null };
 }
 
 /**

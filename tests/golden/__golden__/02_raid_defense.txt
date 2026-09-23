@@ -1,0 +1,156 @@
+# 02 反舰饱和攻击的分层防御
+红方齐射 8 枚反舰导弹；蓝方以舰空导弹拦截，近防炮起初被舰桥遮挡，舰体转向以右舷对敌后才可交战；每层拦截数量由作者在合法区间内裁定。
+scenario: raid.json
+
+
+## 开局：双方雷达互相发现
+> ADVANCE {}
+[09:00:00] E2        DETECTION_OPPORTUNITY  09:00:00 Blue-DDG-01 有可能探测到 Red-DDG-01（多功能雷达）
+[09:00:00] E3        DETECTION_OPPORTUNITY  09:00:00 Red-DDG-01 有可能探测到 Blue-DDG-01（多功能雷达）
+[09:00:00] E4        TIME_ADVANCED          时间推进 09:00:00 → 09:00:00（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP1","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL","classification":"驱逐舰"}}
+[09:00:00] E5        DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL） = Red-DDG-01
+            ← E2
+            需要: 多功能雷达 开机且几何可探测 (E2)
+            需要: 作者裁定: 探测成功
+            产生: blue-ddg-01 航迹 blue-T1 (FIRE_CONTROL)
+> RESOLVE {"opportunityId":"red-OPP1","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL","classification":"驱逐舰"}}
+[09:00:00] E6        DETECTION              Red-DDG-01 多功能雷达 建立航迹 red-T1（FIRE_CONTROL） = Blue-DDG-01
+            ← E3
+            需要: 多功能雷达 开机且几何可探测 (E3)
+            需要: 作者裁定: 探测成功
+            产生: red-ddg-01 航迹 red-T1 (FIRE_CONTROL)
+
+## 红方齐射
+> LAUNCH {"unitId":"red-ddg-01","mountId":"vls","weaponId":"asm-x","count":8,"trackId":"red-T1"}
+[09:00:00] E7        LAUNCH                 Red-DDG-01 垂直发射系统 向航迹 red-T1 发射 8 × ASM-X 反舰导弹，09:05:44.828 到达
+            ← E6
+            需要: 航迹来源 (E6)
+            需要: 航迹质量 FIRE_CONTROL ≥ WEAPON_SUPPORT
+            需要: 库存 24 → 16
+            需要: vls 可用
+            产生: 弹群 red-MG1
+> ADVANCE {}
+[09:04:27.242] E8        DETECTION_OPPORTUNITY  09:04:27.242 Blue-DDG-01 有可能探测到 red-MG1（多功能雷达）
+[09:04:27.242] E9        TIME_ADVANCED          时间推进 09:00:00 → 09:04:27.242（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP2","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL","classification":"反舰导弹群"}}
+[09:04:27.242] E10       DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T2（FIRE_CONTROL） = red-MG1
+            ← E8
+            需要: 多功能雷达 开机且几何可探测 (E8)
+            需要: 作者裁定: 探测成功
+            产生: blue-ddg-01 航迹 blue-T2 (FIRE_CONTROL)
+
+## 第一层：舰空导弹
+> ENGAGE {"unitId":"blue-ddg-01","mountId":"vls","weaponId":"sam-std","trackId":"blue-T2"}
+[09:04:27.242] E11       ENGAGE                 Blue-DDG-01 以 SAM-STD 舰空导弹 拦截航迹 blue-T2：窗口 09:04:27.242–09:05:34.484，8 次交战，合法区间 [2, 6]
+            ← E10
+            需要: 航迹来源 (E10)
+            需要: 消耗 16 × SAM-STD 舰空导弹
+            产生: 交战 blue-ENG1
+            产生: 占用 fire_control ×4
+            产生: 占用 illuminator ×1
+
+## 第二层：近防炮被舰桥遮挡 → 舰体转向右舷对敌
+> ENGAGE {"unitId":"blue-ddg-01","mountId":"ciws","weaponId":"ciws-burst","trackId":"blue-T2"}  —— 预期被拒绝
+  ✗ 弹群到达前不会进入交战包线/射界
+    ✓ 右舷近防炮 方位 0.0° ∈ [-170, 10]
+    ✓ 右舷近防炮 俯仰 0.0° ∈ [-10, 85]
+    ✗ 右舷近防炮 被遮挡: 舰桥遮挡
+> MANEUVER {"unitId":"blue-ddg-01","label":"右舷对敌","priority":5,"durationS":120,"attitude":{"kind":"axis_cone","bodyAxis":[0,-1,0],"target":{"kind":"track","trackId":"blue-T2"},"halfAngleDeg":20}}
+[09:04:27.242] E12       CLAIM_ADDED            右舷对敌 占用 hull_attitude（优先级 5）
+            产生: claim blue-C3
+> ALIGN {"unitId":"blue-ddg-01","mountId":"rail","trackId":"blue-T1","priority":1}  —— 预期被拒绝
+  ✗ hull_attitude: 与同级或更高优先级约束冲突，不能进入该姿态
+    ✗ 姿态约束无交集 / attitude constraints conflict
+      ✗ 右舷对敌 ∩ Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1: 需要偏差 90.00° / 允许 22.00°
+    - 现有约束: 右舷对敌（优先级 5）
+> ENGAGE {"unitId":"blue-ddg-01","mountId":"ciws","weaponId":"ciws-burst","trackId":"blue-T2"}
+[09:04:27.242] E13       ENGAGE                 Blue-DDG-01 以 近防炮点射 拦截航迹 blue-T2：窗口 09:05:32.760–09:05:43.794，3 次交战，合法区间 [0, 2]
+            ← E10
+            需要: 航迹来源 (E10)
+            需要: 消耗 3 × 近防炮点射
+            产生: 交战 blue-ENG2
+            产生: 占用 ciws_stbd
+
+## 舰空导弹窗口结束：作者裁定
+> ADVANCE {}
+[09:05:34.484] E14       INTERCEPT_OPPORTUNITY  blue-ENG1 拦截结果待裁定，合法区间 [2, 6]
+            ← E11
+[09:05:34.484] E15       TIME_ADVANCED          时间推进 09:04:27.242 → 09:05:34.484（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP3","decision":{"kind":"intercept","intercepted":5}}
+[09:05:34.484] E16       INTERCEPT              Blue-DDG-01 blue-ENG1 拦截 5 枚，red-MG1 剩余 3
+            ← E11, E14
+            需要: 交战 blue-ENG1 (E11)
+            需要: 作者裁定 5 ∈ [2, 6] (E14)
+            产生: 来袭弹群 -5
+[09:05:34.484] E17       CLAIM_RELEASED         blue-ENG1 SAM-STD 舰空导弹 释放 fire_control（交战结束）
+            ← E16
+[09:05:34.484] E18       CLAIM_RELEASED         blue-ENG1 SAM-STD 舰空导弹 释放 illuminator（交战结束）
+            ← E16
+
+## 近防炮窗口结束：区间按剩余数量收紧
+> ADVANCE {}
+[09:05:43.794] E19       INTERCEPT_OPPORTUNITY  blue-ENG2 拦截结果待裁定，合法区间 [0, 2]
+            ← E13
+[09:05:43.794] E20       TIME_ADVANCED          时间推进 09:05:34.484 → 09:05:43.794（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP4","decision":{"kind":"intercept","intercepted":3}}  —— 预期被拒绝
+  ✗ 3 ∈ 合法区间 [0, 2]
+    - blue-ENG2 交战窗口结束，裁定拦截数量
+      - 合法拦截区间 [0, 2]
+        - 可完成交战次数 E = 3
+          - 火控/交战通道 1 × 交战周期 3: 3  [瓶颈/binding]
+            - 有效交战窗口 11.0 s
+            - 每次交战循环 3 s
+          - 库存 30 ÷ 每目标齐射 1: 30
+          - 弹群剩余数量: 8
+        - 每次交战击毁界 [0.2, 0.7] → 最少 ⌊3×0.2⌋ = 0，最多 min(⌊3×0.7⌋, 剩余 8) = 2
+        - 消耗拦截弹 3 发（3 次 × 每次 1 发）
+      - 弹群当前剩余 3
+> RESOLVE {"opportunityId":"blue-OPP4","decision":{"kind":"intercept","intercepted":2,"note":"最后一枚在 400 米处被打爆，碎片落在舰艏"}}
+[09:05:43.794] E21       INTERCEPT              Blue-DDG-01 blue-ENG2 拦截 2 枚（最后一枚在 400 米处被打爆，碎片落在舰艏），red-MG1 剩余 1
+            ← E13, E19
+            需要: 交战 blue-ENG2 (E13)
+            需要: 作者裁定 2 ∈ [0, 2] (E19)
+            产生: 来袭弹群 -2
+[09:05:43.794] E22       CLAIM_RELEASED         blue-ENG2 近防炮点射 释放 ciws_stbd（交战结束）
+            ← E21
+
+## 残余一枚到达
+> ADVANCE {}
+[09:05:44.828] E23       IMPACT_OPPORTUNITY     red-MG1（1 枚）到达，合法命中区间 [0, 1]
+            ← E7
+[09:05:44.828] E24       TIME_ADVANCED          时间推进 09:05:43.794 → 09:05:44.828（出现待裁定机会）
+> RESOLVE {"opportunityId":"red-OPP2","decision":{"kind":"impact","hits":1}}
+[09:05:44.828] E25       IMPACT                 red-MG1 命中 Blue-DDG-01 1 枚，落空 0 枚
+            ← E7, E23
+            需要: 发射 (E7)
+            需要: 作者裁定 1 ∈ [0, 1] (E23)
+            产生: blue-ddg-01 被命中 1
+[09:05:44.828] E26       GROUP_EXPENDED         red-MG1 结束（已到达目标）
+            ← E25
+
+## 终局摘要（分支 "main"，09:05:44.828）
+- Blue-DDG-01 [active] 命中 1 航迹 blue-T1,blue-T2 vls{sam-std:24 asm-x:16} ciws{ciws-burst:27} rail{rail-slug:40}
+- Red-DDG-01 [active] 命中 0 航迹 red-T1 vls{sam-std:40 asm-x:16} ciws{ciws-burst:30} rail{rail-slug:40}
+- red-MG1 asm-x 发射 8 被拦 7 命中 1 落空 0 剩余 0 [expended]
+
+### 蓝方视角事件
+[09:00:00] blue-E1   SCENARIO_START         想定开始: 反舰饱和攻击防御（演示）
+[09:00:00] blue-E2   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL）
+[09:04:27.242] blue-E3   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T2（FIRE_CONTROL）
+[09:04:27.242] blue-E4   ENGAGE                 Blue-DDG-01 以 SAM-STD 舰空导弹 拦截航迹 blue-T2：窗口 09:04:27.242–09:05:34.484，消耗 16 发
+[09:04:27.242] blue-E5   CLAIM_ADDED            右舷对敌 占用 hull_attitude（优先级 5）
+[09:04:27.242] blue-E6   ENGAGE                 Blue-DDG-01 以 近防炮点射 拦截航迹 blue-T2：窗口 09:05:32.760–09:05:43.794，消耗 3 发
+[09:05:34.484] blue-E7   INTERCEPT              Blue-DDG-01 blue-ENG1 拦截 5 枚
+[09:05:34.484] blue-E8   CLAIM_RELEASED         blue-ENG1 SAM-STD 舰空导弹 释放 fire_control（交战结束）
+[09:05:34.484] blue-E9   CLAIM_RELEASED         blue-ENG1 SAM-STD 舰空导弹 释放 illuminator（交战结束）
+[09:05:43.794] blue-E10  INTERCEPT              Blue-DDG-01 blue-ENG2 拦截 2 枚（最后一枚在 400 米处被打爆，碎片落在舰艏）
+[09:05:43.794] blue-E11  CLAIM_RELEASED         blue-ENG2 近防炮点射 释放 ciws_stbd（交战结束）
+[09:05:44.828] blue-E12  IMPACT                 Blue-DDG-01 被来袭弹药命中 1 枚
+
+### 红方视角事件
+[09:00:00] red-E1    SCENARIO_START         想定开始: 反舰饱和攻击防御（演示）
+[09:00:00] red-E2    DETECTION              Red-DDG-01 多功能雷达 建立航迹 red-T1（FIRE_CONTROL）
+[09:00:00] red-E3    LAUNCH                 Red-DDG-01 垂直发射系统 向航迹 red-T1 发射 8 × ASM-X 反舰导弹，09:05:44.828 到达
+[09:05:44.828] red-E4    IMPACT                 red-MG1 到达目标区，战果需另行确认
+[09:05:44.828] red-E5    GROUP_EXPENDED         red-MG1 结束（已到达目标）

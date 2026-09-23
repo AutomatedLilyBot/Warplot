@@ -1,0 +1,94 @@
+# 03 轴炮与规避机动争夺舰体姿态
+目标在正横方向，舰首轴炮需要整舰转向；转向途中来袭威胁迫使舰体执行更高优先级的规避，对准请求被挂起，规避结束后自动恢复，对准后开火。
+scenario: axial_duel.json
+
+> ADVANCE {}
+[10:00:00] E2        DETECTION_OPPORTUNITY  10:00:00 Blue-DDG-01 有可能探测到 Red-DDG-01（多功能雷达）
+[10:00:00] E3        TIME_ADVANCED          时间推进 10:00:00 → 10:00:00（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP1","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL"}}
+[10:00:00] E4        DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL） = Red-DDG-01
+            ← E2
+            需要: 多功能雷达 开机且几何可探测 (E2)
+            需要: 作者裁定: 探测成功
+            产生: blue-ddg-01 航迹 blue-T1 (FIRE_CONTROL)
+
+## 目标在左舷正横：轴炮无法射击
+> LAUNCH {"unitId":"blue-ddg-01","mountId":"rail","weaponId":"rail-slug","count":3,"trackId":"blue-T1"}  —— 预期被拒绝
+  ✗ 舰首轴线电磁炮 轴线误差 90.00° ≤ 2°（依赖舰体姿态）
+  - 提示: 先下达 ALIGN 命令，让舰体姿态控制把轴线对准目标
+> ALIGN {"unitId":"blue-ddg-01","mountId":"rail","trackId":"blue-T1","priority":1}
+[10:00:00] E5        CLAIM_ADDED            Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 占用 hull_attitude（优先级 1）
+            ← E4
+            产生: claim blue-C1
+> LAUNCH {"unitId":"blue-ddg-01","mountId":"rail","weaponId":"rail-slug","count":3,"trackId":"blue-T1"}  —— 预期被拒绝
+  ✗ 舰首轴线电磁炮 轴线误差 90.00° ≤ 2°（依赖舰体姿态）
+  - 按当前转向速率，预计 10:00:29.334 对准
+  最早可行: 10:00:29.334
+
+## 10 秒后被迫规避：对准被挂起
+> ADVANCE {"until":10000}
+[10:00:10] E6        TIME_ADVANCED          时间推进 10:00:00 → 10:00:10（到达目标时间）
+> MANEUVER {"unitId":"blue-ddg-01","label":"EVADE missile_group_04","priority":10,"durationS":20}
+[10:00:10] E7        CLAIM_ADDED            EVADE missile_group_04 占用 hull_attitude（优先级 10）
+            产生: claim blue-C2
+[10:00:10] E8        CLAIM_SUSPENDED        Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 被 EVADE missile_group_04 挂起（优先级 1 < 10）
+            ← E7
+> ALIGN {"unitId":"blue-ddg-01","mountId":"rail","trackId":"blue-T1","priority":5}  —— 预期被拒绝
+  ✗ hull_attitude: 与同级或更高优先级约束冲突，不能进入该姿态
+    ✗ hull_attitude 被独占机动占用: EVADE missile_group_04 (优先级 10)
+    - 现有约束: EVADE missile_group_04（优先级 10）
+> LAUNCH {"unitId":"blue-ddg-01","mountId":"rail","weaponId":"rail-slug","count":3,"trackId":"blue-T1"}  —— 预期被拒绝
+  ✗ 舰首轴线电磁炮 轴线误差 60.00° ≤ 2°（依赖舰体姿态）
+  - 对准请求 blue-C1 被更高优先级机动挂起
+
+## 规避结束，对准自动恢复
+> ADVANCE {"stopAtNotable":true}
+[10:00:30] E9        CLAIM_RELEASED         EVADE missile_group_04 释放 hull_attitude（到时）
+[10:00:30] E10       CLAIM_RESUMED          Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 恢复
+            ← E9
+[10:00:30] E11       TIME_ADVANCED          时间推进 10:00:10 → 10:00:30（出现值得注意的确定事件）
+> 等待至可执行 LAUNCH {"unitId":"blue-ddg-01","mountId":"rail","weaponId":"rail-slug","count":3,"trackId":"blue-T1"} → 10:00:49.334
+[10:00:49.334] E12       TIME_ADVANCED          时间推进 10:00:30 → 10:00:49.334（到达目标时间）
+> LAUNCH {"unitId":"blue-ddg-01","mountId":"rail","weaponId":"rail-slug","count":3,"trackId":"blue-T1"}
+[10:00:49.334] E13       LAUNCH                 Blue-DDG-01 舰首轴线电磁炮 向航迹 blue-T1 发射 3 × 轴线电磁炮弹，10:01:05.334 到达
+            ← E4
+            需要: 航迹来源 (E4)
+            需要: 航迹质量 FIRE_CONTROL ≥ FIRE_CONTROL
+            需要: 库存 40 → 37
+            需要: rail 可用
+            产生: 弹群 blue-MG1
+
+## 炮弹 16 秒后到达
+> ADVANCE {}
+[10:01:05.334] E14       IMPACT_OPPORTUNITY     blue-MG1（3 枚）到达，合法命中区间 [0, 1]
+            ← E13
+[10:01:05.334] E15       TIME_ADVANCED          时间推进 10:00:49.334 → 10:01:05.334（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP2","decision":{"kind":"impact","hits":1}}
+[10:01:05.334] E16       IMPACT                 blue-MG1 命中 Red-DDG-01 1 枚，落空 2 枚
+            ← E13, E14
+            需要: 发射 (E13)
+            需要: 作者裁定 1 ∈ [0, 1] (E14)
+            产生: red-ddg-01 被命中 1
+[10:01:05.334] E17       GROUP_EXPENDED         blue-MG1 结束（已到达目标）
+            ← E16
+
+## 终局摘要（分支 "main"，10:01:05.334）
+- Blue-DDG-01 [active] 命中 0 航迹 blue-T1 vls{sam-std:40 asm-x:16} ciws{ciws-burst:30} rail{rail-slug:37}
+- Red-DDG-01 [active] 命中 1 航迹 - vls{sam-std:40 asm-x:24} ciws{ciws-burst:30} rail{rail-slug:40}
+- blue-MG1 rail-slug 发射 3 被拦 0 命中 1 落空 2 剩余 0 [expended]
+
+### 蓝方视角事件
+[10:00:00] blue-E1   SCENARIO_START         想定开始: 轴炮对决（演示）
+[10:00:00] blue-E2   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL）
+[10:00:00] blue-E3   CLAIM_ADDED            Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 占用 hull_attitude（优先级 1）
+[10:00:10] blue-E4   CLAIM_ADDED            EVADE missile_group_04 占用 hull_attitude（优先级 10）
+[10:00:10] blue-E5   CLAIM_SUSPENDED        Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 被 EVADE missile_group_04 挂起（优先级 1 < 10）
+[10:00:30] blue-E6   CLAIM_RELEASED         EVADE missile_group_04 释放 hull_attitude（到时）
+[10:00:30] blue-E7   CLAIM_RESUMED          Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 恢复
+[10:00:49.334] blue-E8   LAUNCH                 Blue-DDG-01 舰首轴线电磁炮 向航迹 blue-T1 发射 3 × 轴线电磁炮弹，10:01:05.334 到达
+[10:01:05.334] blue-E9   IMPACT                 blue-MG1 到达目标区，战果需另行确认
+[10:01:05.334] blue-E10  GROUP_EXPENDED         blue-MG1 结束（已到达目标）
+
+### 红方视角事件
+[10:00:00] red-E1    SCENARIO_START         想定开始: 轴炮对决（演示）
+[10:01:05.334] red-E2    IMPACT                 Red-DDG-01 被来袭弹药命中 1 枚

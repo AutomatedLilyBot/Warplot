@@ -1,0 +1,28 @@
+{
+  "id": "recon-strike",
+  "name": "无人机引导打击（演示）",
+  "epoch": "08:00:00",
+  "signalSpeedMps": 299792458,
+  "sides": [{ "id": "blue", "name": "蓝方" }, { "id": "red", "name": "红方" }],
+  "referencePlanes": [{ "id": "sea", "name": "海平面", "origin": [0, 0, 0], "normal": [0, 0, 1] }],
+  "obstacles": [],
+  "units": [
+    {
+      "id": "blue-ddg-01", "name": "Blue-DDG-01", "side": "blue", "classId": "ddg",
+      "position": [0, 0, 0], "headingDeg": 0, "sensorsOn": [],
+      "loadout": { "vls": { "sam-std": 40, "asm-x": 16 }, "ciws": { "ciws-burst": 30 }, "rail": { "rail-slug": 40 } }
+    },
+    {
+      "id": "blue-uav-01", "name": "Blue-UAV-01", "side": "blue", "classId": "uav",
+      "position": [120000, 0, 5000], "sensorsOn": ["uav-radar"], "loadout": {}
+    },
+    {
+      "id": "red-ddg-01", "name": "Red-DDG-01", "side": "red", "classId": "ddg",
+      "position": [200000, 0, 0], "headingDeg": 180, "sensorsOn": ["esm"],
+      "loadout": { "vls": { "sam-std": 40, "asm-x": 24 }, "ciws": { "ciws-burst": 30 }, "rail": { "rail-slug": 40 } }
+    }
+  ],
+  "datalinks": [
+    { "id": "blue-link", "name": "蓝方数据链", "side": "blue", "members": ["blue-ddg-01", "blue-uav-01"], "latencyS": 2 }
+  ]
+}

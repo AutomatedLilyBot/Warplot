@@ -1,0 +1,270 @@
+{
+ "name": "04 分支：同一开局的两种剧情走向",
+ "description": "开局双方互相截获雷达辐射后标记节点；主线保持雷达开机，分支让蓝方驱逐舰关闭雷达（红方电子侦察随即失去保持）。演示 mark / fork / undo / switch 与每个分支独立可重放。",
+ "scenario": "demo_scenario.json",
+ "steps": [
+  {
+   "note": "开局：双方电子侦察互相截获雷达辐射"
+  },
+  {
+   "do": {
+    "type": "ADVANCE"
+   }
+  },
+  {
+   "expect": {
+    "time": "07:40:00",
+    "pending": [
+     "blue-OPP1",
+     "blue-OPP2",
+     "blue-OPP3",
+     "blue-OPP4",
+     "red-OPP1",
+     "red-OPP2",
+     "red-OPP3",
+     "red-OPP4"
+    ]
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "blue-OPP1",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "blue-OPP2",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "blue-OPP3",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "blue-OPP4",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "red-OPP1",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "red-OPP2",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "red-OPP3",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "red-OPP4",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "BEARING_ONLY"
+    }
+   }
+  },
+  {
+   "expect": {
+    "knows": {
+     "blue-ddg-01": [
+      "blue-T1",
+      "blue-T2"
+     ],
+     "red-ddg-02": [
+      "red-T3",
+      "red-T4"
+     ]
+    },
+    "quality": {
+     "blue-ddg-01.blue-T1": "BEARING_ONLY"
+    },
+    "sideExcludes": {
+     "blue": [
+      "red-ddg-01",
+      "Red-DDG-01",
+      "red-uav-03"
+     ],
+     "red": [
+      "blue-ddg-01",
+      "Blue-DDG-01",
+      "blue-uav-01"
+     ]
+    }
+   }
+  },
+  {
+   "mark": "开局"
+  },
+  {
+   "note": "主线：保持雷达开机，无人机互相发现"
+  },
+  {
+   "do": {
+    "type": "ADVANCE"
+   }
+  },
+  {
+   "expect": {
+    "time": "07:59:39.362",
+    "pending": [
+     "blue-OPP5",
+     "red-OPP5"
+    ]
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "blue-OPP5",
+    "decision": {
+     "kind": "detection",
+     "detected": true,
+     "quality": "WEAPON_SUPPORT"
+    }
+   }
+  },
+  {
+   "do": {
+    "type": "RESOLVE",
+    "opportunityId": "red-OPP5",
+    "decision": {
+     "kind": "detection",
+     "detected": false,
+     "reason": "attention",
+     "note": "操作员正在处理舰队通报"
+    }
+   }
+  },
+  {
+   "expect": {
+    "knows": {
+     "blue-uav-01": [
+      "blue-T5"
+     ],
+     "red-uav-03": []
+    }
+   }
+  },
+  {
+   "fork": "蓝方电磁静默",
+   "at": "开局"
+  },
+  {
+   "do": {
+    "type": "SET_SENSOR",
+    "unitId": "blue-ddg-01",
+    "sensorId": "mfr",
+    "on": false
+   }
+  },
+  {
+   "do": {
+    "type": "SET_SENSOR",
+    "unitId": "blue-ddg-02",
+    "sensorId": "mfr",
+    "on": false
+   }
+  },
+  {
+   "do": {
+    "type": "NOTE",
+    "text": "试探：是否连无人机雷达也关？"
+   }
+  },
+  {
+   "undo": 1
+  },
+  {
+   "do": {
+    "type": "ADVANCE",
+    "stopAtNotable": true
+   }
+  },
+  {
+   "expect": {
+    "time": "07:40:00",
+    "pending": []
+   }
+  },
+  {
+   "do": {
+    "type": "ADVANCE"
+   }
+  },
+  {
+   "expect": {
+    "time": "07:59:39.362",
+    "pending": [
+     "blue-OPP5",
+     "red-OPP5"
+    ],
+    "knows": {
+     "red-ddg-01": [
+      "red-T1",
+      "red-T2"
+     ]
+    }
+   }
+  },
+  {
+   "switch": "main"
+  },
+  {
+   "expect": {
+    "time": "07:59:39.362",
+    "pending": []
+   }
+  }
+ ]
+}

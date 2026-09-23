@@ -1,0 +1,33 @@
+{
+  "name": "03 轴炮与规避机动争夺舰体姿态",
+  "description": "目标在正横方向，舰首轴炮需要整舰转向；转向途中来袭威胁迫使舰体执行更高优先级的规避，对准请求被挂起，规避结束后自动恢复，对准后开火。",
+  "scenario": "axial_duel.json",
+  "steps": [
+    { "do": { "type": "ADVANCE" } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL" } } },
+
+    { "note": "目标在左舷正横：轴炮无法射击" },
+    { "reject": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "rail", "weaponId": "rail-slug", "count": 3, "trackId": "blue-T1" }, "because": "轴线误差" },
+    { "do": { "type": "ALIGN", "unitId": "blue-ddg-01", "mountId": "rail", "trackId": "blue-T1", "priority": 1 } },
+    { "reject": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "rail", "weaponId": "rail-slug", "count": 3, "trackId": "blue-T1" }, "because": "预计" },
+
+    { "note": "10 秒后被迫规避：对准被挂起" },
+    { "do": { "type": "ADVANCE", "until": 10000 } },
+    { "do": { "type": "MANEUVER", "unitId": "blue-ddg-01", "label": "EVADE missile_group_04", "priority": 10, "durationS": 20 } },
+    { "expect": { "claims": { "blue-C1": "suspended", "blue-C2": "active" } } },
+    { "reject": { "type": "ALIGN", "unitId": "blue-ddg-01", "mountId": "rail", "trackId": "blue-T1", "priority": 5 }, "because": "EVADE missile_group_04" },
+    { "reject": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "rail", "weaponId": "rail-slug", "count": 3, "trackId": "blue-T1" }, "because": "挂起" },
+
+    { "note": "规避结束，对准自动恢复" },
+    { "do": { "type": "ADVANCE", "stopAtNotable": true } },
+    { "expect": { "time": "10:00:30", "claims": { "blue-C1": "active", "blue-C2": "absent" } } },
+    { "waitUntilLegal": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "rail", "weaponId": "rail-slug", "count": 3, "trackId": "blue-T1" } },
+    { "do": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "rail", "weaponId": "rail-slug", "count": 3, "trackId": "blue-T1" } },
+
+    { "note": "炮弹 16 秒后到达" },
+    { "do": { "type": "ADVANCE" } },
+    { "expect": { "bounds": { "blue-OPP2": [0, 1] } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP2", "decision": { "kind": "impact", "hits": 1 } } },
+    { "expect": { "hits": { "red-ddg-01": 1 }, "ammo": { "blue-ddg-01.rail.rail-slug": 37 } } }
+  ]
+}

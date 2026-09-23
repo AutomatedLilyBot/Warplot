@@ -1,0 +1,98 @@
+# 01 无人机引导打击
+驱逐舰电磁静默，无人机发现目标并经数据链传递；数据到达前不得发射；到达后发射，作者裁定命中。
+scenario: recon_strike.json
+
+
+## 开局：双方各有一个探测机会
+> ADVANCE {}
+[08:00:00] E2        DETECTION_OPPORTUNITY  08:00:00 Blue-UAV-01 有可能探测到 Red-DDG-01（无人机对海雷达）
+[08:00:00] E3        DETECTION_OPPORTUNITY  08:00:00 Red-DDG-01 有可能探测到 Blue-UAV-01（电子支援侦察）
+[08:00:00] E4        TIME_ADVANCED          时间推进 08:00:00 → 08:00:00（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP1","decision":{"kind":"detection","detected":true,"quality":"WEAPON_SUPPORT"}}
+[08:00:00] E5        DETECTION              Blue-UAV-01 无人机对海雷达 建立航迹 blue-T1（WEAPON_SUPPORT） = Red-DDG-01
+            ← E2
+            需要: 无人机对海雷达 开机且几何可探测 (E2)
+            需要: 作者裁定: 探测成功
+            产生: blue-uav-01 航迹 blue-T1 (WEAPON_SUPPORT)
+> RESOLVE {"opportunityId":"red-OPP1","decision":{"kind":"detection","detected":true,"quality":"BEARING_ONLY"}}
+[08:00:00] E6        DETECTION              Red-DDG-01 电子支援侦察 建立航迹 red-T1（BEARING_ONLY） = Blue-UAV-01
+            ← E3
+            需要: 电子支援侦察 开机且几何可探测 (E3)
+            需要: 作者裁定: 探测成功
+            产生: red-ddg-01 航迹 red-T1 (BEARING_ONLY)
+
+## 驱逐舰还没有航迹：发射非法
+> LAUNCH {"unitId":"blue-ddg-01","mountId":"vls","weaponId":"asm-x","count":6,"trackId":"blue-T1"}  —— 预期被拒绝
+  ✗ blue-ddg-01 本平台没有航迹 blue-T1
+    - 本方 blue-uav-01 持有该航迹，需要经数据链发送
+> TRANSMIT {"linkId":"blue-link","from":"blue-uav-01","to":"blue-ddg-01","trackId":"blue-T1"}
+[08:00:00] E7        TRANSMIT               Blue-UAV-01 经 blue-link 向 Blue-DDG-01 发送航迹 blue-T1（WEAPON_SUPPORT），08:00:02.001 到达
+            ← E5
+            需要: blue-uav-01 掌握 blue-T1
+            需要: 航迹来源 (E5)
+            产生: 报文在途，08:00:02.001 到达
+> LAUNCH {"unitId":"blue-ddg-01","mountId":"vls","weaponId":"asm-x","count":6,"trackId":"blue-T1"}  —— 预期被拒绝
+  ✗ blue-ddg-01 本平台没有航迹 blue-T1
+    - 本方 blue-uav-01 持有该航迹，需要经数据链发送
+    - 数据链报文 blue-M1 正在途中，08:00:02.001 到达
+  最早可行: 08:00:02.001
+
+## 推进到报文到达
+> ADVANCE {"stopAtNotable":true}
+[08:00:02.001] E8        DELIVERY               Blue-DDG-01 收到航迹 blue-T1（WEAPON_SUPPORT，数据时刻 08:00:00）
+            ← E7
+            需要: 报文 blue-M1 (E7)
+            产生: blue-ddg-01 获得 blue-T1
+[08:00:02.001] E9        TIME_ADVANCED          时间推进 08:00:00 → 08:00:02.001（出现值得注意的确定事件）
+> LAUNCH {"unitId":"blue-ddg-01","mountId":"vls","weaponId":"asm-x","count":6,"trackId":"blue-T1"}
+[08:00:02.001] E10       LAUNCH                 Blue-DDG-01 垂直发射系统 向航迹 blue-T1 发射 6 × ASM-X 反舰导弹，08:11:31.657 到达
+            ← E5, E7, E8
+            需要: 航迹来源 (E5)
+            需要: 航迹来源 (E7)
+            需要: 航迹来源 (E8)
+            需要: 航迹质量 WEAPON_SUPPORT ≥ WEAPON_SUPPORT
+            需要: 库存 16 → 10
+            需要: vls 可用
+            产生: 弹群 blue-MG1
+
+## 弹群飞行约 690 s，到达后作者裁定命中数
+> ADVANCE {}
+[08:11:31.657] E11       IMPACT_OPPORTUNITY     blue-MG1（6 枚）到达，合法命中区间 [0, 6]
+            ← E10
+[08:11:31.657] E12       TIME_ADVANCED          时间推进 08:00:02.001 → 08:11:31.657（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP2","decision":{"kind":"impact","hits":7}}  —— 预期被拒绝
+  ✗ 7 ∈ 合法区间 [0, 6]
+    - 合法命中区间 [0, 6]
+      ✓ 目标距预测点 0.00 km ≤ 导引头捕获范围 8.00 km
+      - 到达弹数 6，每发末段界 [0, 1]
+> RESOLVE {"opportunityId":"blue-OPP2","decision":{"kind":"impact","hits":2,"note":"两枚命中舰体中部"}}
+[08:11:31.657] E13       IMPACT                 blue-MG1 命中 Red-DDG-01 2 枚，落空 4 枚（两枚命中舰体中部）
+            ← E10, E11
+            需要: 发射 (E10)
+            需要: 作者裁定 2 ∈ [0, 6] (E11)
+            产生: red-ddg-01 被命中 2
+[08:11:31.657] E14       GROUP_EXPENDED         blue-MG1 结束（已到达目标）
+            ← E13
+> SET_UNIT_STATUS {"unitId":"red-ddg-01","status":"damaged","note":"作者裁定：动力受损"}
+[08:11:31.657] E15       UNIT_STATUS            Red-DDG-01 状态 active → damaged（作者裁定：动力受损）
+
+## 终局摘要（分支 "main"，08:11:31.657）
+- Blue-DDG-01 [active] 命中 0 航迹 blue-T1 vls{sam-std:40 asm-x:10} ciws{ciws-burst:30} rail{rail-slug:40}
+- Blue-UAV-01 [active] 命中 0 航迹 blue-T1 
+- Red-DDG-01 [damaged] 命中 2 航迹 red-T1 vls{sam-std:40 asm-x:24} ciws{ciws-burst:30} rail{rail-slug:40}
+- blue-MG1 asm-x 发射 6 被拦 0 命中 2 落空 4 剩余 0 [expended]
+
+### 蓝方视角事件
+[08:00:00] blue-E1   SCENARIO_START         想定开始: 无人机引导打击（演示）
+[08:00:00] blue-E2   DETECTION              Blue-UAV-01 无人机对海雷达 建立航迹 blue-T1（WEAPON_SUPPORT）
+[08:00:00] blue-E3   TRANSMIT               Blue-UAV-01 经 blue-link 向 Blue-DDG-01 发送航迹 blue-T1（WEAPON_SUPPORT），08:00:02.001 到达
+[08:00:02.001] blue-E4   DELIVERY               Blue-DDG-01 收到航迹 blue-T1（WEAPON_SUPPORT，数据时刻 08:00:00）
+[08:00:02.001] blue-E5   LAUNCH                 Blue-DDG-01 垂直发射系统 向航迹 blue-T1 发射 6 × ASM-X 反舰导弹，08:11:31.657 到达
+[08:11:31.657] blue-E6   IMPACT                 blue-MG1 到达目标区，战果需另行确认
+[08:11:31.657] blue-E7   GROUP_EXPENDED         blue-MG1 结束（已到达目标）
+
+### 红方视角事件
+[08:00:00] red-E1    SCENARIO_START         想定开始: 无人机引导打击（演示）
+[08:00:00] red-E2    DETECTION              Red-DDG-01 电子支援侦察 建立航迹 red-T1（BEARING_ONLY）
+[08:11:31.657] red-E3    IMPACT                 Red-DDG-01 被来袭弹药命中 2 枚
+[08:11:31.657] red-E4    UNIT_STATUS            Red-DDG-01 状态 active → damaged（作者裁定：动力受损）
