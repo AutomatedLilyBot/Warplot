@@ -1,8 +1,21 @@
 import { describe, expect, test } from 'vitest';
 import { Session } from '../src/events/session.js';
-import { ddg, miniCtx, must, pending } from './helpers.js';
+import { ddg, demoCtx, miniCtx, must, pending } from './helpers.js';
+import { detectability } from '../src/rules/detection.js';
 
 describe('detection opportunities', () => {
+  test('the sea-search UAV radar cannot detect an airborne UAV, but can detect a ship', () => {
+    const ctx = demoCtx();
+    const s = new Session(ctx);
+    const observer = s.state.units['blue-uav-01']!;
+    const air = detectability(ctx, s.state, observer, 'uav-radar', 'red-uav-03', 0);
+    expect(air.ok).toBe(false);
+    expect(air.checks.some((c) => c.label.includes('目标类别 uav') && !c.ok)).toBe(true);
+    const ship = detectability(ctx, s.state, observer, 'uav-radar', 'red-ddg-01', 0);
+    expect(ship.checks.some((c) => c.label.includes('目标类别 ship') && c.ok)).toBe(true);
+    expect(detectability(ctx, s.state, observer, 'uav-radar', 'red-uav-03', 120_000).ok).toBe(false);
+  });
+
   test('chance appears exactly when the target enters sensor range; time jumps straight there', () => {
     // Red closes at 10 m/s from 160 km; blue mfr range 150 km → 1000 s.
     const ctx = miniCtx([ddg('b1', 'blue', [0, 0, 0]), ddg('r1', 'red', [160_000, 0, 0], { sensorsOn: [], velocity: [-10, 0, 0] })]);

@@ -147,7 +147,7 @@
    "mark": "开局"
   },
   {
-   "note": "主线：保持雷达开机，无人机互相发现"
+   "note": "主线：蓝舰截获红方无人机辐射，红方无人机搜索蓝舰"
   },
   {
    "do": {
@@ -156,7 +156,7 @@
   },
   {
    "expect": {
-    "time": "07:59:39.362",
+    "time": "08:04:22.678",
     "pending": [
      "blue-OPP5",
      "red-OPP5"
@@ -170,7 +170,7 @@
     "decision": {
      "kind": "detection",
      "detected": true,
-     "quality": "WEAPON_SUPPORT"
+     "quality": "BEARING_ONLY"
     }
    }
   },
@@ -189,9 +189,8 @@
   {
    "expect": {
     "knows": {
-     "blue-uav-01": [
-      "blue-T5"
-     ],
+     "blue-ddg-01": ["blue-T1", "blue-T2", "blue-T5"],
+     "blue-uav-01": [],
      "red-uav-03": []
     }
    }
@@ -244,7 +243,7 @@
   },
   {
    "expect": {
-    "time": "07:59:39.362",
+    "time": "08:04:22.678",
     "pending": [
      "blue-OPP5",
      "red-OPP5"
@@ -262,7 +261,7 @@
   },
   {
    "expect": {
-    "time": "07:59:39.362",
+    "time": "08:04:22.678",
     "pending": []
    }
   }

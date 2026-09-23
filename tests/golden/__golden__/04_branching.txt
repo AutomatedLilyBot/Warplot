@@ -64,19 +64,19 @@ scenario: demo_scenario.json
             产生: red-ddg-02 航迹 red-T4 (BEARING_ONLY)
 @ mark "开局"
 
-## 主线：保持雷达开机，无人机互相发现
+## 主线：蓝舰截获红方无人机辐射，红方无人机搜索蓝舰
 > ADVANCE {}
-[07:59:39.362] E19       DETECTION_OPPORTUNITY  07:59:39.362 Blue-UAV-01 有可能探测到 Red-UAV-03（无人机对海雷达）
-[07:59:39.362] E20       DETECTION_OPPORTUNITY  07:59:39.362 Red-UAV-03 有可能探测到 Blue-UAV-01（无人机对海雷达）
-[07:59:39.362] E21       TIME_ADVANCED          时间推进 07:40:00 → 07:59:39.362（出现待裁定机会）
-> RESOLVE {"opportunityId":"blue-OPP5","decision":{"kind":"detection","detected":true,"quality":"WEAPON_SUPPORT"}}
-[07:59:39.362] E22       DETECTION              Blue-UAV-01 无人机对海雷达 建立航迹 blue-T5（WEAPON_SUPPORT） = Red-UAV-03
+[08:04:22.678] E19       DETECTION_OPPORTUNITY  08:04:22.678 Blue-DDG-01 有可能探测到 Red-UAV-03（电子支援侦察）
+[08:04:22.678] E20       DETECTION_OPPORTUNITY  08:04:22.678 Red-UAV-03 有可能探测到 Blue-DDG-01（无人机对海雷达）
+[08:04:22.678] E21       TIME_ADVANCED          时间推进 07:40:00 → 08:04:22.678（出现待裁定机会）
+> RESOLVE {"opportunityId":"blue-OPP5","decision":{"kind":"detection","detected":true,"quality":"BEARING_ONLY"}}
+[08:04:22.678] E22       DETECTION              Blue-DDG-01 电子支援侦察 建立航迹 blue-T5（BEARING_ONLY） = Red-UAV-03
             ← E19
-            需要: 无人机对海雷达 开机且几何可探测 (E19)
+            需要: 电子支援侦察 开机且几何可探测 (E19)
             需要: 作者裁定: 探测成功
-            产生: blue-uav-01 航迹 blue-T5 (WEAPON_SUPPORT)
+            产生: blue-ddg-01 航迹 blue-T5 (BEARING_ONLY)
 > RESOLVE {"opportunityId":"red-OPP5","decision":{"kind":"detection","detected":false,"reason":"attention","note":"操作员正在处理舰队通报"}}
-[07:59:39.362] E23       DETECTION_DECLINED     作者裁定: Red-UAV-03 无人机对海雷达 未探测到目标（attention: 操作员正在处理舰队通报）
+[08:04:22.678] E23       DETECTION_DECLINED     作者裁定: Red-UAV-03 无人机对海雷达 未探测到目标（attention: 操作员正在处理舰队通报）
             ← E20
 
 ## 分支 "蓝方电磁静默"（自 开局，07:40:00）
@@ -98,16 +98,16 @@ scenario: demo_scenario.json
             ← E18
 [07:40:00] E25       TIME_ADVANCED          时间推进 07:40:00 → 07:40:00（出现值得注意的确定事件）
 > ADVANCE {}
-[07:59:39.362] E26       DETECTION_OPPORTUNITY  07:59:39.362 Blue-UAV-01 有可能探测到 Red-UAV-03（无人机对海雷达）
-[07:59:39.362] E27       DETECTION_OPPORTUNITY  07:59:39.362 Red-UAV-03 有可能探测到 Blue-UAV-01（无人机对海雷达）
-[07:59:39.362] E28       TIME_ADVANCED          时间推进 07:40:00 → 07:59:39.362（出现待裁定机会）
+[08:04:22.678] E26       DETECTION_OPPORTUNITY  08:04:22.678 Blue-DDG-01 有可能探测到 Red-UAV-03（电子支援侦察）
+[08:04:22.678] E27       DETECTION_OPPORTUNITY  08:04:22.678 Red-UAV-03 有可能探测到 Blue-DDG-01（无人机对海雷达）
+[08:04:22.678] E28       TIME_ADVANCED          时间推进 07:40:00 → 08:04:22.678（出现待裁定机会）
 
-## 切回分支 "main"（07:59:39.362）
+## 切回分支 "main"（08:04:22.678）
 
-## 终局摘要（分支 "main"，07:59:39.362）
-- Blue-DDG-01 [active] 命中 0 航迹 blue-T1,blue-T2 vls{sam-std:48 asm-x:16} ciws{ciws-burst:30} rail{rail-slug:40}
+## 终局摘要（分支 "main"，08:04:22.678）
+- Blue-DDG-01 [active] 命中 0 航迹 blue-T1,blue-T2,blue-T5 vls{sam-std:48 asm-x:16} ciws{ciws-burst:30} rail{rail-slug:40}
 - Blue-DDG-02 [active] 命中 0 航迹 blue-T3,blue-T4 vls{sam-std:48 asm-x:16} ciws{ciws-burst:30} rail{rail-slug:40}
-- Blue-UAV-01 [active] 命中 0 航迹 blue-T5 
+- Blue-UAV-01 [active] 命中 0 航迹 - 
 - Red-DDG-01 [active] 命中 0 航迹 red-T1,red-T2 vls{sam-std:40 asm-x:24} ciws{ciws-burst:30} rail{rail-slug:40}
 - Red-DDG-02 [active] 命中 0 航迹 red-T3,red-T4 vls{sam-std:40 asm-x:24} ciws{ciws-burst:30} rail{rail-slug:40}
 - Red-UAV-03 [active] 命中 0 航迹 - 
@@ -118,7 +118,7 @@ scenario: demo_scenario.json
 [07:40:00] blue-E3   DETECTION              Blue-DDG-01 电子支援侦察 建立航迹 blue-T2（BEARING_ONLY）
 [07:40:00] blue-E4   DETECTION              Blue-DDG-02 电子支援侦察 建立航迹 blue-T3（BEARING_ONLY）
 [07:40:00] blue-E5   DETECTION              Blue-DDG-02 电子支援侦察 建立航迹 blue-T4（BEARING_ONLY）
-[07:59:39.362] blue-E6   DETECTION              Blue-UAV-01 无人机对海雷达 建立航迹 blue-T5（WEAPON_SUPPORT）
+[08:04:22.678] blue-E6   DETECTION              Blue-DDG-01 电子支援侦察 建立航迹 blue-T5（BEARING_ONLY）
 
 ### 红方视角事件
 [07:40:00] red-E1    SCENARIO_START         想定开始: 海峡遭遇战（演示）
@@ -127,7 +127,7 @@ scenario: demo_scenario.json
 [07:40:00] red-E4    DETECTION              Red-DDG-02 电子支援侦察 建立航迹 red-T3（BEARING_ONLY）
 [07:40:00] red-E5    DETECTION              Red-DDG-02 电子支援侦察 建立航迹 red-T4（BEARING_ONLY）
 
-## 终局摘要（分支 "蓝方电磁静默"，07:59:39.362）
+## 终局摘要（分支 "蓝方电磁静默"，08:04:22.678）
 - Blue-DDG-01 [active] 命中 0 航迹 blue-T1,blue-T2 vls{sam-std:48 asm-x:16} ciws{ciws-burst:30} rail{rail-slug:40}
 - Blue-DDG-02 [active] 命中 0 航迹 blue-T3,blue-T4 vls{sam-std:48 asm-x:16} ciws{ciws-burst:30} rail{rail-slug:40}
 - Blue-UAV-01 [active] 命中 0 航迹 - 

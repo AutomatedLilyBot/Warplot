@@ -25,6 +25,9 @@ export function buildCatalog(raw: { sensors: unknown[]; weapons: unknown[]; unit
   const unitClasses = byId(raw.unitClasses as UnitClassDef[], 'unit class');
   for (const s of Object.values(sensors)) {
     if (!TRACK_QUALITIES.includes(s.maxQuality)) throw new Error(`sensor ${s.id}: bad maxQuality ${s.maxQuality}`);
+    if (s.targetCategories !== undefined)
+      requireValue(Array.isArray(s.targetCategories) && s.targetCategories.length > 0 &&
+        s.targetCategories.every((category) => ['ship', 'uav', 'aew', 'missile'].includes(category)), `sensor ${s.id}.targetCategories`);
     requireValue(positive(s.rangeM), `sensor ${s.id}.rangeM`);
     requireValue(nonnegative(s.uncertaintyM), `sensor ${s.id}.uncertaintyM`);
     requireValue(positive(s.reofferIntervalS), `sensor ${s.id}.reofferIntervalS`);

@@ -26,6 +26,8 @@ export interface SensorDef {
   id: string;
   name: string;
   kind: 'radar' | 'eo' | 'esm' | 'other';
+  /** Target classes this sensor can search; omitted means all classes. */
+  targetCategories?: ('ship' | 'uav' | 'aew' | 'missile')[];
   /** Nominal geometric detection range against a signature-1.0 target. */
   rangeM: number;
   /** Best track quality this sensor alone can establish. */
