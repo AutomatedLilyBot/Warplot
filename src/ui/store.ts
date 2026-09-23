@@ -12,6 +12,15 @@ import { type MapModel, type ViewId, buildMapModel } from './mapModel.js';
 
 const SAVE_KEY = 'warplot:autosave:v1';
 
+/** Drop the browser autosave (e.g. after it stopped replaying). */
+export function clearAutosave(): void {
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export interface Flash {
   kind: 'ok' | 'error';
   text: string;
@@ -34,6 +43,8 @@ export class AppStore {
   private modelCache: { v: number; model: MapModel } | null = null;
 
   constructor() {
+    // Emergency hatch: open the page with ?reset to start from a clean slate.
+    if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('reset')) clearAutosave();
     if (!this.restore()) this.loadScenario(Object.keys(scenarios).includes('demo_scenario.json') ? 'demo_scenario.json' : Object.keys(scenarios)[0]!);
   }
 
@@ -129,7 +140,9 @@ export class AppStore {
       if (!scenarios[scenarioFile]) return false;
       this.loadScenario(scenarioFile, session);
       return true;
-    } catch {
+    } catch (e) {
+      console.warn('[warplot] autosave could not be restored, starting fresh', e);
+      clearAutosave();
       return false; // stale or corrupt save: start fresh
     }
   }
