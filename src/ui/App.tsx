@@ -13,6 +13,7 @@ import type { AppStore } from './store.js';
 import { scenarios, scripts } from './content.js';
 import { QUALITY_ZH, STATUS_ZH, groupLabel, trackNumber } from './labels.js';
 import type { MapEntity } from './mapModel.js';
+import { ErrorBoundary } from './ErrorBoundary.js';
 
 const SIDE_TONES = ['#4ea1ff', '#ff5a5a', '#54d18a', '#c792ea'];
 
@@ -161,14 +162,35 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
 // ---------------------------------------------------------------------------
 
 function MapView({ store, tones }: { store: AppStore; tones: Record<string, string> }) {
+  return (
+    <div className="map">
+      <ErrorBoundary compact title="地图出错（侧栏仍可使用）">
+        <MapCanvas store={store} tones={tones} />
+      </ErrorBoundary>
+    </div>
+  );
+}
+
+function MapCanvas({ store, tones }: { store: AppStore; tones: Record<string, string> }) {
   const version = useStore(store);
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<TacticalMap | null>(null);
+  const [glError, setGlError] = useState<string | null>(null);
 
   useEffect(() => {
-    const map = new TacticalMap(ref.current!, { tones, onPick: (k) => store.select(k) });
+    let map: TacticalMap;
+    try {
+      map = new TacticalMap(ref.current!, { tones, onPick: (k) => store.select(k), onContextLost: () => setGlError('WebGL 上下文丢失（显卡驱动重置或资源不足）。') });
+    } catch (e) {
+      setGlError((e as Error).message || String(e));
+      return;
+    }
     mapRef.current = map;
-    return () => map.dispose();
+    setGlError(null);
+    return () => {
+      mapRef.current = null;
+      map.dispose();
+    };
   }, [store, tones]);
 
   const sc = store.ctx.scenario;
@@ -186,14 +208,29 @@ function MapView({ store, tones }: { store: AppStore; tones: Record<string, stri
   }, [store.focusRequest, store]);
 
   return (
-    <div className="map">
+    <>
       <div className="map-canvas" ref={ref} />
-      <div className="map-overlay">
-        <button onClick={() => mapRef.current?.fit()}>全景</button>
-        {store.selected && <button onClick={() => mapRef.current?.focus(store.selected!)}>居中所选</button>}
-      </div>
-      <Legend tones={tones} />
-    </div>
+      {glError ? (
+        <div className="crash compact">
+          <h2>3D 地图无法启动</h2>
+          <p>浏览器没能创建 WebGL 画布，侧栏的全部功能仍然可用。</p>
+          <pre className="tree">{glError}</pre>
+          <ul className="small">
+            <li>在浏览器设置里打开“使用硬件加速”（Chrome/Edge：设置 → 系统），然后重启浏览器；</li>
+            <li>Chrome/Edge 地址栏打开 chrome://gpu，查看 WebGL 是否为 “Hardware accelerated”；</li>
+            <li>远程桌面 / 虚拟机里常常没有 WebGL，可以换本机浏览器打开。</li>
+          </ul>
+        </div>
+      ) : (
+        <>
+          <div className="map-overlay">
+            <button onClick={() => mapRef.current?.fit()}>全景</button>
+            {store.selected && <button onClick={() => mapRef.current?.focus(store.selected!)}>居中所选</button>}
+          </div>
+          <Legend tones={tones} />
+        </>
+      )}
+    </>
   );
 }
 

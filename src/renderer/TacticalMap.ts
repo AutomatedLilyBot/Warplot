@@ -15,6 +15,8 @@ export type CameraMode = 'perspective' | 'top' | 'side';
 
 export interface MapOptions {
   onPick?: (key: string | null) => void;
+  /** Called if the GPU drops the WebGL context. */
+  onContextLost?: () => void;
   /** CSS colour per tone (side id or 'contact'). */
   tones: Record<string, string>;
 }
@@ -70,13 +72,23 @@ export class TacticalMap {
     this.resizeObs.observe(container);
     this.resize();
     const el = this.renderer.domElement;
+    el.addEventListener('webglcontextlost', (ev) => {
+      ev.preventDefault();
+      this.opts.onContextLost?.();
+    });
     el.addEventListener('pointerdown', this.onDown);
     el.addEventListener('pointerup', this.onUp);
+    let reported = false;
     const loop = () => {
       this.raf = requestAnimationFrame(loop);
-      this.controls.update();
-      this.updateScreenSizes();
-      this.renderer.render(this.scene, this.camera);
+      try {
+        this.controls.update();
+        this.updateScreenSizes();
+        this.renderer.render(this.scene, this.camera);
+      } catch (e) {
+        if (!reported) console.error('[warplot] render error', e);
+        reported = true;
+      }
     };
     loop();
   }
