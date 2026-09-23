@@ -198,7 +198,9 @@ function MapCanvas({ store, tones }: { store: AppStore; tones: Record<string, st
   useEffect(() => {
     mapRef.current?.setPlane(plane?.origin ?? [0, 0, 0], plane?.normal ?? [0, 0, 1]);
   }, [plane, tones]);
-  useEffect(() => mapRef.current?.setCameraMode(store.cameraMode), [store.cameraMode, tones]);
+  useEffect(() => {
+    mapRef.current?.setCameraMode(store.cameraMode);
+  }, [store.cameraMode, tones]);
   useEffect(() => {
     mapRef.current?.setModel(store.mapModel());
     mapRef.current?.setSelected(store.selected);
@@ -749,7 +751,11 @@ function LogPanel({ store }: { store: AppStore }) {
       ? s.log.map((e) => ({ id: e.id, time: e.time, kind: e.kind, summary: e.truth.summary }))
       : projectSideView(store.ctx, s, store.view).events.map((e) => ({ id: e.id, time: e.time, kind: e.kind, summary: e.summary }));
   const shown = events.filter((e) => showTicks || e.kind !== 'TIME_ADVANCED').slice(-300);
-  useEffect(() => endRef.current?.scrollIntoView({ block: 'nearest' }), [shown.length]);
+  // Block body on purpose: newer Chrome returns a Promise from scrollIntoView, and an
+  // expression-bodied effect would hand that to React as its cleanup ("destroy is not a function").
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [shown.length]);
   return (
     <section className="panel log">
       <div className="row">
