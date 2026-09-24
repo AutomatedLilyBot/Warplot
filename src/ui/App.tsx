@@ -4,7 +4,7 @@ import type { Command } from '../events/types.js';
 import type { AppStore, SidebarTab } from './store.js';
 import { scenarios, scripts } from './content.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
-import { Segmented, Tree, useClock, useStore } from './common.js';
+import { Segmented, Tree, downloadText, useClock, useStore } from './common.js';
 import { OpportunityDialog } from './panels/Opportunity.js';
 import { DetailsPanel, EntityList } from './panels/Details.js';
 import { ActionsPanel } from './panels/Actions.js';
@@ -71,14 +71,7 @@ export function App({ store }: { store: AppStore }) {
 function TopBar({ store }: { store: AppStore }) {
   const sc = store.ctx.scenario;
   const fileRef = useRef<HTMLInputElement>(null);
-  const download = () => {
-    const blob = new Blob([store.exportSession()], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `warplot-${sc.id}-${store.session.branch.name}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  const download = () => downloadText(`warplot-${sc.id}-${store.session.branch.name}.json`, store.exportSession(), 'application/json');
   return (
     <header className="topbar">
       <div className="brand">Warplot</div>

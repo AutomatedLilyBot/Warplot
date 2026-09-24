@@ -254,4 +254,31 @@ describe('Phase 3 interface', () => {
     fireEvent.change(screen.getByRole('combobox', { name: '当前分支' }), { target: { value: store.session.branches()[1]!.id } });
     expect(store.session.branch.name).toBe('另一种结局');
   });
+
+  test('log tab: filter, causal chain of a clicked event, and exports', () => {
+    const store = new AppStore();
+    store.loadScenario('raid.json');
+    render(<App store={store} />);
+    act(() => void store.dispatch({ type: 'ADVANCE' }));
+    for (const id of store.pendingIds())
+      act(() => void store.dispatch({ type: 'RESOLVE', opportunityId: id, decision: { kind: 'detection', detected: true, classification: { category: 'ship', identity: 'hostile', confidence: 1 } } }));
+    const track = Object.keys(store.state.knowledge['blue-ddg-01']!)[0]!;
+    act(() => void store.dispatch({ type: 'LAUNCH', unitId: 'blue-ddg-01', mountId: 'vls', weaponId: 'asm-x', count: 2, trackId: track }));
+    fireEvent.click(screen.getByRole('tab', { name: '日志' }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: '过滤日志' }), { target: { value: 'LAUNCH' } });
+    const rows = document.querySelectorAll('.events li');
+    expect(rows).toHaveLength(1);
+    fireEvent.click(within(rows[0] as HTMLElement).getByTitle('查看因果链'));
+    const causal = screen.getByRole('region', { name: '因果链' });
+    expect(causal.textContent).toContain('DETECTION');
+
+    const urls: string[] = [];
+    Object.assign(URL, { createObjectURL: () => (urls.push('blob:x'), 'blob:x'), revokeObjectURL: () => {} });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByRole('button', { name: '日志 JSON' }));
+    fireEvent.click(screen.getByRole('button', { name: '战斗编年 TXT' }));
+    expect(click).toHaveBeenCalledTimes(2);
+    click.mockRestore();
+  });
 });

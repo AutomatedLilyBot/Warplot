@@ -22,6 +22,15 @@ export function Tree({ items, failingOnly }: { items: Explanation[]; failingOnly
 
 export const km = (m: number) => `${(m / 1000).toFixed(1)} km`;
 export const deg = (v: [number, number, number]) => ((Math.atan2(v[0], v[1]) * 180) / Math.PI + 360) % 360;
+/** Offer a text file to the viewer as a download. */
+export function downloadText(filename: string, text: string, type: string): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 export const num = (x: string): number | undefined => (x.trim() === '' ? undefined : Number(x));
 
 export function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {

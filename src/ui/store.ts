@@ -112,6 +112,11 @@ export class AppStore {
     return [this.session.stateAt(null), ...this.session.path(this.session.branch.head).map((n) => this.session.stateAt(n.id))];
   }
 
+  /** State whose log the log tab shows: the rehearsal while one is open, else the session. */
+  logState(): WorldState {
+    return this.rehearsal?.state ?? this.state;
+  }
+
   pendingIds(): string[] {
     return Object.values(this.state.opportunities)
       .filter((o) => o.status === 'pending')
