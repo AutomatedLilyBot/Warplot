@@ -39,4 +39,14 @@ describe('architecture', () => {
       expect(bad.length, `${f} has an expression-bodied effect`).toBe(0);
     }
   });
+
+  test('no two source modules differ only by letter case or .ts/.tsx (breaks resolution on Windows / macOS)', () => {
+    const all = [...files(src), ...files(fileURLToPath(new URL('./', import.meta.url)))];
+    const seen = new Map<string, string>();
+    for (const f of all) {
+      const key = f.replace(/\.tsx?$/, '').toLowerCase();
+      expect(seen.get(key), `${f} collides with ${seen.get(key)}`).toBeUndefined();
+      seen.set(key, f);
+    }
+  });
 });

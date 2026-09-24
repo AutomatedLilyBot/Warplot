@@ -1,7 +1,7 @@
 /** Map-bottom timeline: scrub a read-only preview of positions, or rehearse the next advance. */
 import { useState } from 'react';
 import type { AppStore } from './store.js';
-import { timelineMarks } from './timeline.js';
+import { timelineMarks } from './timelineMarks.js';
 import { useClock } from './common.js';
 
 const RANGES: [number, string][] = [

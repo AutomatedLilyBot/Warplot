@@ -309,7 +309,7 @@ AppStore ── session / view / selection
   /rules         kinematics · world · search · detection · tracks（测量/协方差/外推）· comms · arcs · attitude · resources · weapons
   /events        types（命令/事件/机会）· engine · scheduler · session · export · chronicle
   /renderer      frame（浮动原点/参考面基）· glyphs（图标/标签纹理）· TacticalMap
-  /ui            mapModel · actions · causal · timeline · labels · store · content（纯逻辑，已测试）
+  /ui            mapModel · actions · causal · timelineMarks · labels · store · content（纯逻辑，已测试）
                  App.tsx · Timeline.tsx · common.tsx · ErrorBoundary.tsx · main.tsx · styles.css
     /panels      Opportunity · Details · Actions · Route · Branches · Log · Console
 /tests           vitest 单元测试
