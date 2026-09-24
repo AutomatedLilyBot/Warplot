@@ -63,4 +63,41 @@ describe('Three.js map lifecycle with a stub GPU', () => {
     expect(container.querySelector('canvas')).toBeNull();
     container.remove();
   });
+
+  test('draws uncertainty and draft routes; plane picking returns a world point on the pick plane', () => {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'clientWidth', { value: 800 });
+    Object.defineProperty(container, 'clientHeight', { value: 600 });
+    document.body.appendChild(container);
+    const picks: number[][] = [];
+    const map = new TacticalMap(container, { tones: { blue: '#4ea1ff', contact: '#ffc14d' }, onPlanePick: (p) => picks.push(p) });
+    const model: MapModel = {
+      view: 'god', time: 0, obstacles: [],
+      draftRoute: [[0, 0, 0], [10_000, 0, 0], [10_000, 10_000, 0]],
+      entities: [
+        { key: 'unit:b1', kind: 'unit', tone: 'blue', category: 'ship', label: 'B1', position: [0, 0, 0] },
+        { key: 'track:T1', kind: 'track', tone: 'contact', category: 'contact', label: '7001', position: [30_000, 0, 0],
+          ellipsoid: { center: [30_000, 0, 0], axes: [[500, 0, 0], [0, 200, 0], [0, 0, 100]] } },
+        { key: 'track:T2', kind: 'track', tone: 'contact', category: 'contact', label: '7002', position: null,
+          bearing: { origin: [0, 0, 0], dir: [0, 1, 0] }, bearingSpread: 0.03 },
+      ],
+    };
+    expect(() => {
+      map.setModel(model);
+      map.setShowUncertainty(false);
+      map.setShowUncertainty(true);
+      map.setCameraMode('top');
+    }).not.toThrow();
+    const canvas = container.querySelector('canvas')!;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    Object.assign(canvas, { setPointerCapture() {}, releasePointerCapture() {}, hasPointerCapture: () => false });
+    map.setPlanePicking([0, 0, 250]);
+    canvas.dispatchEvent(new MouseEvent('pointerdown', { clientX: 400, clientY: 300 }) as PointerEvent);
+    canvas.dispatchEvent(new MouseEvent('pointerup', { clientX: 400, clientY: 300 }) as PointerEvent);
+    expect(picks).toHaveLength(1);
+    expect(picks[0]![2]).toBeCloseTo(250, 3); // on the plane through the anchor
+    map.setPlanePicking(null);
+    map.dispose();
+    container.remove();
+  });
 });

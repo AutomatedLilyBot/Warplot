@@ -6,7 +6,8 @@ import { AppStore } from '../src/ui/store.js';
 import type { MapModel } from '../src/ui/mapModel.js';
 
 interface FakeMap {
-  opts: { onPick?: (key: string | null) => void };
+  opts: { onPick?: (key: string | null) => void; onPlanePick?: (p: [number, number, number]) => void };
+  planeAnchor: number[] | null;
   model: MapModel | null;
   selected: string | null;
   mode: string;
@@ -23,6 +24,7 @@ vi.mock('../src/renderer/TacticalMap.js', () => ({
     selected: string | null = null;
     mode = 'perspective';
     fits = 0;
+    planeAnchor: number[] | null = null;
     constructor(_container: HTMLElement, opts: FakeMap['opts']) {
       if (mapMock.failConstruction) throw new Error('WebGL unavailable');
       this.opts = opts;
@@ -35,6 +37,9 @@ vi.mock('../src/renderer/TacticalMap.js', () => ({
     setCameraMode(mode: string) { this.mode = mode; }
     focus() {}
     fit() { this.fits++; }
+    setPlanePicking(anchor: number[] | null) { this.planeAnchor = anchor; }
+    showUncertainty = true;
+    setShowUncertainty(on: boolean) { this.showUncertainty = on; }
   },
 }));
 
@@ -55,7 +60,7 @@ describe('Phase 3 interface', () => {
 
     act(() => map.opts.onPick?.('unit:blue-ddg-01'));
     expect(store.selected).toBe('unit:blue-ddg-01');
-    expect(screen.getByRole('heading', { name: /Blue-DDG-01/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /^Blue-DDG-01/ })).toBeTruthy();
 
     fireEvent.click(within(screen.getByRole('group', { name: '视角' })).getByRole('button', { name: '红方' }));
     expect(store.view).toBe('red');
@@ -72,19 +77,61 @@ describe('Phase 3 interface', () => {
   test('opportunity details stay hidden in a side view and can be ruled in god view', () => {
     const store = new AppStore();
     render(<App store={store} />);
-    fireEvent.click(screen.getByRole('button', { name: /下一事件/ }));
+    fireEvent.click(screen.getByRole('button', { name: /▶ 下一事件/ }));
     const pending = () => Object.values(store.state.opportunities).filter((o) => o.status === 'pending').length;
     expect(pending()).toBeGreaterThan(0);
 
     fireEvent.click(within(screen.getByRole('group', { name: '视角' })).getByRole('button', { name: '蓝方' }));
     expect(screen.queryByRole('button', { name: '探测到' })).toBeNull();
-    expect(screen.getByText('机会属于作者层信息，本阵营视角不显示内容。')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '待裁定机会' }).textContent).toContain('本阵营视角不显示内容');
 
     fireEvent.click(screen.getByRole('button', { name: '切换到上帝视角裁定' }));
     const before = pending();
-    fireEvent.click(screen.getAllByRole('button', { name: '探测到' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: '探测到' }));
     expect(pending()).toBe(before - 1);
     expect(store.state.log.some((e) => e.kind === 'DETECTION')).toBe(true);
+  });
+
+  test('opportunity dialog pages, minimises, reopens on new chances and batch-rules detections', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    fireEvent.click(screen.getByRole('button', { name: /▶ 下一事件/ }));
+    const pending = () => Object.values(store.state.opportunities).filter((o) => o.status === 'pending');
+    const n = pending().length;
+    expect(n).toBeGreaterThan(2);
+    const dialog = () => screen.getByRole('dialog', { name: '待裁定机会' });
+    expect(within(dialog()).getByText(`1 / ${n}`)).toBeTruthy();
+    fireEvent.click(within(dialog()).getByRole('button', { name: '下一个' }));
+    expect(within(dialog()).getByText(`2 / ${n}`)).toBeTruthy();
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: '最小化' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: `待裁定 ${n}` }));
+    expect(dialog()).toBeTruthy();
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: /其余 \d+ 个探测机会全部/ }));
+    expect(pending()).toHaveLength(1);
+    fireEvent.click(within(dialog()).getByRole('button', { name: '探测到' }));
+    expect(pending()).toHaveLength(0);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // Minimised, then new chances arrive: the dialog comes back.
+    store.setOppMinimized(true);
+    act(() => void store.dispatch({ type: 'ADVANCE' }));
+    expect(pending().length).toBeGreaterThan(0);
+    expect(store.oppMinimized).toBe(false);
+    expect(screen.getByRole('dialog', { name: '待裁定机会' })).toBeTruthy();
+  });
+
+  test('sidebar tabs switch panels and remember the choice', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    fireEvent.click(screen.getByRole('tab', { name: '日志' }));
+    expect(screen.getByRole('heading', { name: /事件日志/ })).toBeTruthy();
+    expect(localStorage.getItem('warplot:tab')).toBe('log');
+    fireEvent.click(screen.getByRole('tab', { name: '高级' }));
+    expect(screen.getByRole('heading', { name: '命令台' })).toBeTruthy();
+    expect(new AppStore().tab).toBe('advanced');
   });
 
   test('file input reports a corrupt session without losing the current work', async () => {
@@ -103,7 +150,7 @@ describe('Phase 3 interface', () => {
 
     await waitFor(() => expect(screen.getByText(/载入失败/)).toBeTruthy());
     expect(store.exportSession()).toBe(before);
-    expect(screen.getByRole('button', { name: /下一事件/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /▶ 下一事件/ })).toBeTruthy();
   });
 
   test('a WebGL startup failure keeps the sidebar usable', () => {
@@ -111,6 +158,162 @@ describe('Phase 3 interface', () => {
     const store = new AppStore();
     render(<App store={store} />);
     expect(screen.getByRole('heading', { name: '3D 地图无法启动' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /下一事件/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /▶ 下一事件/ })).toBeTruthy();
+  });
+
+  test('actions panel executes legal commands, greys illegal ones and copies them as JSON', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    act(() => store.select('unit:blue-ddg-01'));
+    const panel = () => screen.getByRole('heading', { name: /动作：Blue-DDG-01/ }).closest('section')!;
+    const row = (label: RegExp) => within(panel()).getByText(label).closest('.action') as HTMLElement;
+
+    const note = row(/写入备注/);
+    fireEvent.change(within(note).getByRole('textbox'), { target: { value: '侧栏动作测试' } });
+    fireEvent.click(within(note).getByRole('button', { name: '执行' }));
+    expect(store.state.log.at(-1)?.truth.summary).toBe('侧栏动作测试');
+
+    // An empty note is illegal: the button is disabled and the reason is shown.
+    const empty = row(/写入备注/);
+    fireEvent.change(within(empty).getByRole('textbox'), { target: { value: '' } });
+    expect((within(empty).getByRole('button', { name: '执行' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(empty.textContent).toContain('备注非空');
+
+    fireEvent.click(within(empty).getByRole('button', { name: '复制为 JSON' }));
+    expect(store.tab).toBe('advanced');
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain('"NOTE"');
+  });
+
+  test('route planning: map clicks add waypoints, confirm dispatches SET_ROUTE, Esc cancels', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    const map = mapMock.instances[0]!;
+    act(() => store.select('unit:blue-ddg-01'));
+    fireEvent.click(screen.getByRole('button', { name: '规划航路' }));
+    expect(map.planeAnchor).not.toBeNull();
+    const [x, y, z] = map.planeAnchor as [number, number, number];
+    act(() => map.opts.onPlanePick?.([x + 20_000, y, z]));
+    act(() => map.opts.onPlanePick?.([x + 20_000, y + 20_000, z]));
+    expect(map.model?.draftRoute).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: '删除航路点 2' }));
+    expect(store.routeDraft?.points).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '确认航路' }));
+    const last = store.session.commands().at(-1)!;
+    expect(last.type).toBe('SET_ROUTE');
+    expect(store.routeDraft).toBeNull();
+    expect(map.planeAnchor).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '规划航路' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(store.routeDraft).toBeNull();
+  });
+
+  test('a busy launcher offers to advance to its earliest legal time', () => {
+    const store = new AppStore();
+    store.loadScenario('raid.json');
+    render(<App store={store} />);
+    act(() => void store.dispatch({ type: 'ADVANCE' }));
+    for (const id of store.pendingIds())
+      act(() => void store.dispatch({ type: 'RESOLVE', opportunityId: id, decision: { kind: 'detection', detected: true, classification: { category: 'ship', identity: 'hostile', confidence: 1 } } }));
+    const track = Object.keys(store.state.knowledge['blue-ddg-01']!)[0]!;
+    act(() => void store.dispatch({ type: 'LAUNCH', unitId: 'blue-ddg-01', mountId: 'vls', weaponId: 'asm-x', count: 2, trackId: track }));
+    const t0 = store.state.time;
+    act(() => store.select('unit:blue-ddg-01'));
+    const row = screen.getByText(/发射 垂直发射系统 · ASM-X/).closest('.action') as HTMLElement;
+    expect((within(row).getByRole('button', { name: '执行' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(row).getByRole('button', { name: /推进到/ }));
+    expect(store.state.time).toBe(t0 + 2000);
+    const again = screen.getByText(/发射 垂直发射系统 · ASM-X/).closest('.action') as HTMLElement;
+    expect((within(again).getByRole('button', { name: '执行' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test('branches panel: fork from a past node, switch branches, go back and redo', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    act(() => void store.dispatch({ type: 'NOTE', text: 'A' }));
+    act(() => void store.dispatch({ type: 'NOTE', text: 'B' }));
+    fireEvent.click(screen.getByRole('tab', { name: '分支' }));
+    const history = () => screen.getByRole('heading', { name: /命令历史/ }).closest('section')!;
+    const rowOf = (text: string) => within(history()).getByText(text).closest('li') as HTMLElement;
+
+    // Go back to "A": B becomes undone (redo-able), not lost.
+    fireEvent.click(within(rowOf('备注：A')).getByRole('button', { name: '回到此处' }));
+    expect(store.session.commands()).toHaveLength(1);
+    expect(rowOf('备注：B').className).toContain('undone');
+    act(() => store.redo());
+    expect(store.session.commands()).toHaveLength(2);
+
+    // Fork at "A" under a new name; the new branch becomes current.
+    fireEvent.click(within(rowOf('备注：A')).getByRole('button', { name: '从此处分支…' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '新分支名称' }), { target: { value: '另一种结局' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建分支' }));
+    expect(store.session.branch.name).toBe('另一种结局');
+    expect(store.session.commands()).toHaveLength(1);
+
+    // Switch back through the branch tree and through the top-bar selector.
+    fireEvent.click(screen.getByRole('button', { name: /^main/ }));
+    expect(store.session.branch.id).toBe('main');
+    fireEvent.change(screen.getByRole('combobox', { name: '当前分支' }), { target: { value: store.session.branches()[1]!.id } });
+    expect(store.session.branch.name).toBe('另一种结局');
+  });
+
+  test('log tab: filter, causal chain of a clicked event, and exports', () => {
+    const store = new AppStore();
+    store.loadScenario('raid.json');
+    render(<App store={store} />);
+    act(() => void store.dispatch({ type: 'ADVANCE' }));
+    for (const id of store.pendingIds())
+      act(() => void store.dispatch({ type: 'RESOLVE', opportunityId: id, decision: { kind: 'detection', detected: true, classification: { category: 'ship', identity: 'hostile', confidence: 1 } } }));
+    const track = Object.keys(store.state.knowledge['blue-ddg-01']!)[0]!;
+    act(() => void store.dispatch({ type: 'LAUNCH', unitId: 'blue-ddg-01', mountId: 'vls', weaponId: 'asm-x', count: 2, trackId: track }));
+    fireEvent.click(screen.getByRole('tab', { name: '日志' }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: '过滤日志' }), { target: { value: 'LAUNCH' } });
+    const rows = document.querySelectorAll('.events li');
+    expect(rows).toHaveLength(1);
+    fireEvent.click(within(rows[0] as HTMLElement).getByTitle('查看因果链'));
+    const causal = screen.getByRole('region', { name: '因果链' });
+    expect(causal.textContent).toContain('DETECTION');
+
+    const urls: string[] = [];
+    Object.assign(URL, { createObjectURL: () => (urls.push('blob:x'), 'blob:x'), revokeObjectURL: () => {} });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByRole('button', { name: '日志 JSON' }));
+    fireEvent.click(screen.getByRole('button', { name: '战斗编年 TXT' }));
+    expect(click).toHaveBeenCalledTimes(2);
+    click.mockRestore();
+  });
+
+  test('timeline preview is read-only; rehearsal can be discarded or adopted', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    const map = mapMock.instances[0]!;
+    const t0 = store.state.time;
+    const n0 = store.session.commands().length;
+    fireEvent.change(screen.getByRole('slider', { name: '预览时刻' }), { target: { value: String(t0 + 600_000) } });
+    expect(store.previewAt).toBe(t0 + 600_000);
+    expect(map.model?.preview).toBe(true);
+    expect(screen.getByText(/预览（未提交/)).toBeTruthy();
+    expect(store.session.commands()).toHaveLength(n0);
+    expect(localStorage.getItem('warplot:autosave:v1') ?? '').not.toContain(String(t0 + 600_000));
+    fireEvent.click(screen.getByRole('button', { name: '回到现在' }));
+    expect(store.previewAt).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '预演下一机会' }));
+    const banner = screen.getByRole('status', { name: '预演' });
+    expect(store.rehearsal).not.toBeNull();
+    expect(store.state.time).toBe(t0);
+    expect(map.model!.time).toBeGreaterThanOrEqual(t0);
+    expect((screen.getByRole('button', { name: /▶ 下一事件/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(banner).getByRole('button', { name: '放弃' }));
+    expect(store.rehearsal).toBeNull();
+    expect(store.session.commands()).toHaveLength(n0);
+
+    fireEvent.click(screen.getByRole('button', { name: '预演下一机会' }));
+    const rehearsed = store.rehearsal!.state;
+    fireEvent.click(within(screen.getByRole('status', { name: '预演' })).getByRole('button', { name: '采纳' }));
+    expect(store.rehearsal).toBeNull();
+    expect(store.session.commands()).toHaveLength(n0 + 1);
+    expect(JSON.stringify(store.state)).toBe(JSON.stringify(rehearsed));
   });
 });

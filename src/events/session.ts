@@ -151,6 +151,11 @@ export class Session {
     return Object.values(this.data.branches);
   }
 
+  /** Undone nodes of the current branch in replay order (next redo first). */
+  redoNodes(): CommandNode[] {
+    return [...this.branch.redo].reverse().map((id) => this.data.nodes[id]!);
+  }
+
   // --- persistence ---------------------------------------------------------
 
   toJSON(): SessionData {

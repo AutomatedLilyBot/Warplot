@@ -10,8 +10,11 @@ import type { Ctx } from '../rules/world.js';
 import { groupPosition, orientationAt, trackCovarianceAt, trackPositionAt } from '../rules/world.js';
 import { RAD } from '../core/math/vec3.js';
 import { ellipsoid95, fmtM } from '../rules/tracks.js';
+import { symEigen } from '../core/math/mat3.js';
+import { CHI2_95 } from '../core/math/stats.js';
+import { scale } from '../core/math/vec3.js';
 import { positionAt } from '../rules/kinematics.js';
-import type { MotionPlan, Track, WorldState } from '../state/types.js';
+import type { MissileGroupState, MotionPlan, Track, WorldState } from '../state/types.js';
 import { projectSideView } from '../state/view.js';
 import { groupLabel, trackNumber } from './labels.js';
 
@@ -32,6 +35,10 @@ export interface MapEntity {
   forward?: Vec3;
   /** Bearing-only tracks: ray from the observer. */
   bearing?: { origin: Vec3; dir: Vec3 };
+  /** Bearing-only tracks: 95 % half-angle (rad) of the bearing, 1.96 σθ. */
+  bearingSpread?: number;
+  /** Localized tracks: 95 % joint ellipsoid at the displayed time — centre and semi-axis vectors (m). */
+  ellipsoid?: { center: Vec3; axes: [Vec3, Vec3, Vec3] };
   trail?: Vec3[];
   route?: Vec3[];
   flightLine?: [Vec3, Vec3];
@@ -43,6 +50,21 @@ export interface MapModel {
   time: number;
   entities: MapEntity[];
   obstacles: { id: string; name: string; center: Vec3; radiusM: number }[];
+  /** Route being drawn: the unit's position followed by the draft waypoints. */
+  draftRoute?: Vec3[];
+  /** Positions are extrapolated to `time`, later than the state (nothing is committed). */
+  preview?: boolean;
+}
+
+export interface MapModelOptions {
+  /** In god view, also draw every side's track picture. */
+  godTracks?: boolean;
+  draftRoute?: Vec3[];
+  /**
+   * Preview time (≥ state time): positions follow the current motion plans, flights
+   * and track extrapolation to this time. Future events are not simulated.
+   */
+  at?: number;
 }
 
 /**
@@ -103,8 +125,16 @@ function trackEntity(ctx: Ctx, tr: PictureTrack, now: number, tone: string, extr
     label: `${extra}${num}`,
     sublabel: `${trackSublabel(ctx, tr, now)}${age > 0 ? ` · ${age}s` : ''}`,
     position: pos,
-    ...(tr.spatial.kind === 'BEARING_ONLY' ? { bearing: { origin: tr.spatial.origin, dir: tr.spatial.direction } } : {}),
+    ...(tr.spatial.kind === 'BEARING_ONLY'
+      ? { bearing: { origin: tr.spatial.origin, dir: tr.spatial.direction }, bearingSpread: 1.96 * tr.spatial.angleSigmaRad }
+      : { ellipsoid: { center: pos!, axes: ellipsoidAxes(trackCovarianceAt(ctx, tr, now)!) } }),
   };
+}
+
+/** Semi-axis vectors of the 95 % joint ellipsoid (eigenvectors scaled by √(λ·χ²₃,₀.₉₅)). */
+export function ellipsoidAxes(cov: Parameters<typeof symEigen>[0]): [Vec3, Vec3, Vec3] {
+  const { values, vectors } = symEigen(cov);
+  return vectors.map((v, i) => scale(v, Math.sqrt(Math.max(values[i]!, 0) * CHI2_95[3]))) as [Vec3, Vec3, Vec3];
 }
 
 /** Freshest copy of each track across a set of platforms. */
@@ -120,14 +150,20 @@ function mergePicture<T extends PictureTrack>(tracksByPlatform: T[][]): T[] {
 
 /**
  * @param history states along the current branch, root first, ending with the current state
- * @param opts.godTracks in god view, also draw every side's track picture
  */
-export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opts: { godTracks?: boolean } = {}): MapModel {
+export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opts: MapModelOptions = {}): MapModel {
   const s = history[history.length - 1]!;
   const now = s.time;
+  const t = Math.max(now, opts.at ?? now);
   const obstacles = ctx.scenario.obstacles.map((o) => ({ ...o }));
   const categoryOf = (classId: string) => ctx.catalog.unitClasses[classId]?.category ?? 'ship';
   const entities: MapEntity[] = [];
+  const extra = {
+    ...(opts.draftRoute ? { draftRoute: opts.draftRoute } : {}),
+    ...(t > now ? { preview: true } : {}),
+  };
+  // A salvo is drawn while in flight at the displayed time.
+  const flying = (g: MissileGroupState) => g.status === 'flying' && t >= g.launchTime && t < g.arrivalTime;
 
   if (view === 'god') {
     for (const u of Object.values(s.units)) {
@@ -138,15 +174,16 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
         category: categoryOf(u.classId),
         label: u.name,
         sublabel: u.status !== 'active' ? u.status : undefined,
-        position: positionAt(u.motion, now),
-        forward: rotate(orientationAt(ctx, u, now), [1, 0, 0]),
+        position: positionAt(u.motion, t),
+        forward: rotate(orientationAt(ctx, u, t), [1, 0, 0]),
         trail: unitTrail(history, u.id),
         route: unitRoute(u.motion, now),
         inactive: u.status === 'destroyed',
       });
     }
     for (const g of Object.values(s.groups)) {
-      if (g.status === 'expended' || now < g.launchTime) continue;
+      // At the state time an arrived salvo awaiting its ruling is still drawn.
+      if (t === now ? g.status === 'expended' || now < g.launchTime : !flying(g)) continue;
       entities.push({
         key: `group:${g.id}`,
         kind: 'group',
@@ -154,7 +191,7 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
         category: 'missile',
         label: `${groupLabel(g.id)} ×${g.count}`,
         sublabel: g.weaponId,
-        position: groupPosition(g, now),
+        position: groupPosition(g, t),
         flightLine: [g.origin, g.aimPoint],
       });
     }
@@ -162,14 +199,15 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
       for (const side of ctx.scenario.sides) {
         const own = Object.values(s.units).filter((u) => u.side === side.id);
         for (const tr of mergePicture(own.map((u) => Object.values(s.knowledge[u.id] ?? {}))))
-          entities.push({ ...trackEntity(ctx, tr, now, 'contact', `${side.name} `), key: `track:${tr.id}` });
+          entities.push({ ...trackEntity(ctx, tr, t, 'contact', `${side.name} `), key: `track:${tr.id}` });
       }
-    return { view, time: now, entities, obstacles };
+    return { view, time: t, entities, obstacles, ...extra };
   }
 
-  // Side view: ONLY from the projection.
+  // Side view: ONLY from the projection (plus the side's own motion plans / launches for previews).
   const sv = projectSideView(ctx, s, view);
   for (const u of sv.units) {
+    const own = s.units[u.id]!;
     entities.push({
       key: `unit:${u.id}`,
       kind: 'unit',
@@ -177,16 +215,17 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
       category: categoryOf(u.classId),
       label: u.name,
       sublabel: u.status !== 'active' ? u.status : undefined,
-      position: u.position,
-      forward: rotate(u.orientation, [1, 0, 0]),
+      position: t === now ? u.position : positionAt(own.motion, t),
+      forward: rotate(t === now ? u.orientation : orientationAt(ctx, own, t), [1, 0, 0]),
       trail: unitTrail(history, u.id),
-      route: unitRoute(s.units[u.id]!.motion, now),
+      route: unitRoute(own.motion, now),
       inactive: u.status === 'destroyed',
     });
   }
   for (const g of sv.groups) {
     if (g.status !== 'flying' || now < g.launchTime) continue;
-    const truth = s.groups[g.id]!; // own group: origin / aim point are the side's own launch data
+    const truth = s.groups[g.id]!; // own group: origin / aim point / timing are the side's own launch data
+    if (t >= truth.arrivalTime) continue;
     entities.push({
       key: `group:${g.id}`,
       kind: 'group',
@@ -194,10 +233,10 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
       category: 'missile',
       label: `${groupLabel(g.id)} ×${g.count}`,
       sublabel: g.weaponId,
-      position: g.position,
+      position: t === now ? g.position : groupPosition(truth, t),
       flightLine: [truth.origin, truth.aimPoint],
     });
   }
-  for (const tr of mergePicture(Object.values(sv.tracks))) entities.push(trackEntity(ctx, tr, now, 'contact'));
-  return { view, time: now, entities, obstacles };
+  for (const tr of mergePicture(Object.values(sv.tracks))) entities.push(trackEntity(ctx, tr, t, 'contact'));
+  return { view, time: t, entities, obstacles, ...extra };
 }
