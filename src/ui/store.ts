@@ -5,6 +5,9 @@
 import { Session, type SessionData } from '../events/session.js';
 import type { ApplyResult, Command, Verdict } from '../events/types.js';
 import type { WorldState } from '../state/types.js';
+import type { Vec3 } from '../core/math/vec3.js';
+import { length } from '../core/math/vec3.js';
+import { positionAt, velocityAt } from '../rules/kinematics.js';
 import type { Ctx } from '../rules/world.js';
 import type { CameraMode } from '../renderer/TacticalMap.js';
 import { type DemoScript, catalog, scenarios, scripts } from './content.js';
@@ -40,6 +43,21 @@ export interface Flash {
   verdict?: Verdict;
 }
 
+/** A route being drawn on the map for one unit (not yet a command). */
+export interface RouteDraft {
+  unitId: string;
+  points: Vec3[];
+  /** Speed for every leg, as typed (m/s). */
+  speedMps: string;
+}
+
+/** A dry-run ADVANCE computed off the session; adopting it dispatches the same command. */
+export interface Rehearsal {
+  cmd: Command;
+  state: WorldState;
+  events: WorldState['log'];
+}
+
 export class AppStore {
   ctx!: Ctx;
   session!: Session;
@@ -57,6 +75,8 @@ export class AppStore {
   oppMinimized = false;
   /** Text handed to the advanced JSON console (e.g. "copy as JSON" from an action). */
   consoleDraft: { text: string; n: number } | null = null;
+  routeDraft: RouteDraft | null = null;
+  rehearsal: Rehearsal | null = null;
   private version = 0;
   private listeners = new Set<() => void>();
   private modelCache: { v: number; model: MapModel } | null = null;
@@ -100,7 +120,13 @@ export class AppStore {
 
   mapModel(): MapModel {
     if (this.modelCache?.v !== this.version)
-      this.modelCache = { v: this.version, model: buildMapModel(this.ctx, this.history(), this.view, { godTracks: this.godTracks }) };
+      this.modelCache = {
+        v: this.version,
+        model: buildMapModel(this.ctx, this.history(), this.view, {
+          godTracks: this.godTracks,
+          ...(this.routeDraft ? { draftRoute: [this.routePlaneAnchor()!, ...this.routeDraft.points] } : {}),
+        }),
+      };
     return this.modelCache.model;
   }
 
@@ -217,6 +243,7 @@ export class AppStore {
   }
 
   select(key: string | null, focus = false): void {
+    if (this.routeDraft && key !== `unit:${this.routeDraft.unitId}`) this.routeDraft = null;
     this.selected = key;
     if (focus && key) this.focusRequest++;
     this.changed(false);
@@ -236,6 +263,67 @@ export class AppStore {
     this.godTracks = on;
     this.modelCache = null;
     this.changed(false);
+  }
+
+  // --- route drafting -----------------------------------------------------
+
+  startRoute(unitId: string): void {
+    const u = this.state.units[unitId];
+    if (!u) return;
+    const v = length(velocityAt(u.motion, this.state.time));
+    const cls = this.ctx.catalog.unitClasses[u.classId]!;
+    const speed = v > 0.5 ? v : cls.maxSpeedMps * 0.6;
+    this.routeDraft = { unitId, points: [], speedMps: String(Math.round(speed * 10) / 10) };
+    this.changed(false);
+  }
+
+  /** World point in the unit's own height layer (the map intersects the plane through the unit). */
+  addRoutePoint(p: Vec3): void {
+    if (!this.routeDraft) return;
+    this.routeDraft = { ...this.routeDraft, points: [...this.routeDraft.points, p] };
+    this.changed(false);
+  }
+
+  removeRoutePoint(i: number): void {
+    if (!this.routeDraft) return;
+    this.routeDraft = { ...this.routeDraft, points: this.routeDraft.points.filter((_, k) => k !== i) };
+    this.changed(false);
+  }
+
+  setRouteSpeed(speed: string): void {
+    if (!this.routeDraft) return;
+    this.routeDraft = { ...this.routeDraft, speedMps: speed };
+    this.changed(false);
+  }
+
+  cancelRoute(): void {
+    this.routeDraft = null;
+    this.changed(false);
+  }
+
+  routeCommand(): Command | null {
+    const d = this.routeDraft;
+    if (!d || !d.points.length) return null;
+    const speed = Number(d.speedMps);
+    return {
+      type: 'SET_ROUTE',
+      unitId: d.unitId,
+      waypoints: d.points.map((p) => ({ position: p.map((x) => Math.round(x)) as Vec3, ...(d.speedMps.trim() ? { speedMps: speed } : {}) })),
+    };
+  }
+
+  commitRoute(): void {
+    const cmd = this.routeCommand();
+    if (cmd && this.dispatch(cmd).ok) {
+      this.routeDraft = null;
+      this.changed(false);
+    }
+  }
+
+  /** Where the map should intersect clicks while drafting: the plane through the unit. */
+  routePlaneAnchor(): Vec3 | null {
+    const u = this.routeDraft && this.state.units[this.routeDraft.unitId];
+    return u ? positionAt(u.motion, this.state.time) : null;
   }
 
   setTab(tab: SidebarTab): void {

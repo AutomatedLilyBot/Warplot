@@ -43,6 +43,14 @@ export interface MapModel {
   time: number;
   entities: MapEntity[];
   obstacles: { id: string; name: string; center: Vec3; radiusM: number }[];
+  /** Route being drawn: the unit's position followed by the draft waypoints. */
+  draftRoute?: Vec3[];
+}
+
+export interface MapModelOptions {
+  /** In god view, also draw every side's track picture. */
+  godTracks?: boolean;
+  draftRoute?: Vec3[];
 }
 
 /**
@@ -120,9 +128,8 @@ function mergePicture<T extends PictureTrack>(tracksByPlatform: T[][]): T[] {
 
 /**
  * @param history states along the current branch, root first, ending with the current state
- * @param opts.godTracks in god view, also draw every side's track picture
  */
-export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opts: { godTracks?: boolean } = {}): MapModel {
+export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opts: MapModelOptions = {}): MapModel {
   const s = history[history.length - 1]!;
   const now = s.time;
   const obstacles = ctx.scenario.obstacles.map((o) => ({ ...o }));
@@ -164,7 +171,7 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
         for (const tr of mergePicture(own.map((u) => Object.values(s.knowledge[u.id] ?? {}))))
           entities.push({ ...trackEntity(ctx, tr, now, 'contact', `${side.name} `), key: `track:${tr.id}` });
       }
-    return { view, time: now, entities, obstacles };
+    return { view, time: now, entities, obstacles, ...(opts.draftRoute ? { draftRoute: opts.draftRoute } : {}) };
   }
 
   // Side view: ONLY from the projection.
@@ -199,5 +206,5 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
     });
   }
   for (const tr of mergePicture(Object.values(sv.tracks))) entities.push(trackEntity(ctx, tr, now, 'contact'));
-  return { view, time: now, entities, obstacles };
+  return { view, time: now, entities, obstacles, ...(opts.draftRoute ? { draftRoute: opts.draftRoute } : {}) };
 }

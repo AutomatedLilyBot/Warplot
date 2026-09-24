@@ -158,3 +158,11 @@ dd.truth { color: var(--warn); }
 .opp-dialog .pager button { padding: 0 8px; }
 .opp-dialog .batch { margin-top: 8px; width: 100%; }
 .opp-pill { position: absolute; top: 8px; right: 8px; z-index: 5; }
+
+/* --- Phase 5: actions panel, route drafting --------------------------------- */
+.action { padding: 5px 0; border-top: 1px solid #172238; }
+.action:first-of-type { border-top: none; }
+.action.illegal .action-label { color: var(--muted); }
+.action label { display: flex; gap: 4px; align-items: center; color: var(--muted); }
+.action .bad { margin-top: 2px; }
+.waypoints { list-style: none; padding: 0; margin: 6px 0; }

@@ -8,13 +8,15 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Vec3 } from '../core/math/vec3.js';
 import { add, scale } from '../core/math/vec3.js';
 import type { MapEntity, MapModel } from '../ui/mapModel.js';
-import { type PlaneFrame, fromPlaneCoords, niceStep, planeCoords, planeFrame, toRender } from './frame.js';
+import { type PlaneFrame, fromPlaneCoords, niceStep, planeCoords, planeFrame, toRender, toWorld } from './frame.js';
 import { type GlyphShape, glyphTexture, labelTexture } from './glyphs.js';
 
 export type CameraMode = 'perspective' | 'top' | 'side';
 
 export interface MapOptions {
   onPick?: (key: string | null) => void;
+  /** Plane-picking mode (route drafting): world point where a click meets the pick plane. */
+  onPlanePick?: (world: Vec3) => void;
   /** Called if the GPU drops the WebGL context. */
   onContextLost?: () => void;
   /** CSS colour per tone (side id or 'contact'). */
@@ -53,6 +55,8 @@ export class TacticalMap {
   private resizeObs: ResizeObserver;
   private downAt: [number, number] | null = null;
   private fitted = false;
+  /** While set, clicks pick a point on the plane through this world point (parallel to the reference plane). */
+  private pickPlaneAt: Vec3 | null = null;
 
   constructor(
     private container: HTMLElement,
@@ -166,6 +170,12 @@ export class TacticalMap {
     this.rebuild();
   }
 
+  /** Enter (point = plane anchor) or leave (null) plane-picking mode. */
+  setPlanePicking(anchor: Vec3 | null): void {
+    this.pickPlaneAt = anchor;
+    this.renderer.domElement.style.cursor = anchor ? 'crosshair' : '';
+  }
+
   /** Reset the camera to show everything. */
   fit(): void {
     this.fitToModel();
@@ -255,9 +265,26 @@ export class TacticalMap {
     const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.camera);
+    if (this.pickPlaneAt) {
+      const p = this.intersectPickPlane(ray.ray);
+      if (p) this.opts.onPlanePick?.(p);
+      return;
+    }
     const hit = ray.intersectObjects(this.pickables, false)[0];
     this.opts.onPick?.((hit?.object.userData.key as string | undefined) ?? null);
   };
+
+  /** Ray (render space) ∩ plane through the anchor with the reference-plane normal, in world metres. */
+  private intersectPickPlane(r: THREE.Ray): Vec3 | null {
+    const n = v3(this.frame.normal);
+    const p0 = this.r(this.pickPlaneAt!);
+    const denom = n.dot(r.direction);
+    if (Math.abs(denom) < 1e-9) return null;
+    const t = p0.clone().sub(r.origin).dot(n) / denom;
+    if (t < 0) return null;
+    const hit = r.origin.clone().addScaledVector(r.direction, t);
+    return toWorld([hit.x, hit.y, hit.z], this.localOrigin);
+  }
 
   // ---------------------------------------------------------------- building
 
@@ -320,6 +347,20 @@ export class TacticalMap {
     }
 
     for (const e of m.entities) this.buildEntity(e);
+    if (m.draftRoute && m.draftRoute.length > 1) this.buildDraftRoute(m.draftRoute);
+  }
+
+  private buildDraftRoute(pts: Vec3[]): void {
+    this.content.add(this.line(pts, '#ffffff', { dashed: true, opacity: 0.95 }));
+    pts.slice(1).forEach((p, i) => {
+      const d = this.sprite(glyphTexture('dot', '#ffffff'), [10, 10]);
+      d.position.copy(this.r(p));
+      this.content.add(d);
+      const lab = labelTexture(`${i + 1}`, undefined, '#ffffff');
+      const s = this.sprite(lab.tex, [lab.w, lab.h], [-0.2, -0.2]);
+      s.position.copy(this.r(p));
+      this.content.add(s);
+    });
   }
 
   private buildPlane(): void {

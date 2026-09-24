@@ -7,6 +7,7 @@ import { ErrorBoundary } from './ErrorBoundary.js';
 import { Segmented, Tree, useClock, useStore } from './common.js';
 import { OpportunityDialog } from './panels/Opportunity.js';
 import { DetailsPanel, EntityList } from './panels/Details.js';
+import { ActionsPanel } from './panels/Actions.js';
 import { LogPanel } from './panels/Log.js';
 import { ConsolePanel } from './panels/Console.js';
 
@@ -50,6 +51,7 @@ export function App({ store }: { store: AppStore }) {
             {store.tab === 'situation' && (
               <>
                 <DetailsPanel store={store} />
+                <ActionsPanel store={store} />
                 <EntityList store={store} tones={tones} />
               </>
             )}
@@ -186,7 +188,12 @@ function MapCanvas({ store, tones }: { store: AppStore; tones: Record<string, st
   useEffect(() => {
     let map: TacticalMap;
     try {
-      map = new TacticalMap(ref.current!, { tones, onPick: (k) => store.select(k), onContextLost: () => setGlError('WebGL 上下文丢失（显卡驱动重置或资源不足）。') });
+      map = new TacticalMap(ref.current!, {
+        tones,
+        onPick: (k) => store.select(k),
+        onPlanePick: (p) => store.addRoutePoint(p),
+        onContextLost: () => setGlError('WebGL 上下文丢失（显卡驱动重置或资源不足）。'),
+      });
     } catch (e) {
       setGlError((e as Error).message || String(e));
       return;
@@ -214,6 +221,12 @@ function MapCanvas({ store, tones }: { store: AppStore; tones: Record<string, st
   useEffect(() => {
     if (store.focusRequest && store.selected) mapRef.current?.focus(store.selected);
   }, [store.focusRequest, store]);
+  const anchor = store.routePlaneAnchor();
+  const anchorKey = anchor?.join(',') ?? '';
+  useEffect(() => {
+    mapRef.current?.setPlanePicking(anchor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorKey, tones]);
 
   return (
     <>

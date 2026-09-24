@@ -6,7 +6,8 @@ import { AppStore } from '../src/ui/store.js';
 import type { MapModel } from '../src/ui/mapModel.js';
 
 interface FakeMap {
-  opts: { onPick?: (key: string | null) => void };
+  opts: { onPick?: (key: string | null) => void; onPlanePick?: (p: [number, number, number]) => void };
+  planeAnchor: number[] | null;
   model: MapModel | null;
   selected: string | null;
   mode: string;
@@ -23,6 +24,7 @@ vi.mock('../src/renderer/TacticalMap.js', () => ({
     selected: string | null = null;
     mode = 'perspective';
     fits = 0;
+    planeAnchor: number[] | null = null;
     constructor(_container: HTMLElement, opts: FakeMap['opts']) {
       if (mapMock.failConstruction) throw new Error('WebGL unavailable');
       this.opts = opts;
@@ -35,6 +37,7 @@ vi.mock('../src/renderer/TacticalMap.js', () => ({
     setCameraMode(mode: string) { this.mode = mode; }
     focus() {}
     fit() { this.fits++; }
+    setPlanePicking(anchor: number[] | null) { this.planeAnchor = anchor; }
   },
 }));
 
@@ -55,7 +58,7 @@ describe('Phase 3 interface', () => {
 
     act(() => map.opts.onPick?.('unit:blue-ddg-01'));
     expect(store.selected).toBe('unit:blue-ddg-01');
-    expect(screen.getByRole('heading', { name: /Blue-DDG-01/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /^Blue-DDG-01/ })).toBeTruthy();
 
     fireEvent.click(within(screen.getByRole('group', { name: '视角' })).getByRole('button', { name: '红方' }));
     expect(store.view).toBe('red');
@@ -154,5 +157,71 @@ describe('Phase 3 interface', () => {
     render(<App store={store} />);
     expect(screen.getByRole('heading', { name: '3D 地图无法启动' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /下一事件/ })).toBeTruthy();
+  });
+
+  test('actions panel executes legal commands, greys illegal ones and copies them as JSON', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    act(() => store.select('unit:blue-ddg-01'));
+    const panel = () => screen.getByRole('heading', { name: /动作：Blue-DDG-01/ }).closest('section')!;
+    const row = (label: RegExp) => within(panel()).getByText(label).closest('.action') as HTMLElement;
+
+    const note = row(/写入备注/);
+    fireEvent.change(within(note).getByRole('textbox'), { target: { value: '侧栏动作测试' } });
+    fireEvent.click(within(note).getByRole('button', { name: '执行' }));
+    expect(store.state.log.at(-1)?.truth.summary).toBe('侧栏动作测试');
+
+    // An empty note is illegal: the button is disabled and the reason is shown.
+    const empty = row(/写入备注/);
+    fireEvent.change(within(empty).getByRole('textbox'), { target: { value: '' } });
+    expect((within(empty).getByRole('button', { name: '执行' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(empty.textContent).toContain('备注非空');
+
+    fireEvent.click(within(empty).getByRole('button', { name: '复制为 JSON' }));
+    expect(store.tab).toBe('advanced');
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain('"NOTE"');
+  });
+
+  test('route planning: map clicks add waypoints, confirm dispatches SET_ROUTE, Esc cancels', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    const map = mapMock.instances[0]!;
+    act(() => store.select('unit:blue-ddg-01'));
+    fireEvent.click(screen.getByRole('button', { name: '规划航路' }));
+    expect(map.planeAnchor).not.toBeNull();
+    const [x, y, z] = map.planeAnchor as [number, number, number];
+    act(() => map.opts.onPlanePick?.([x + 20_000, y, z]));
+    act(() => map.opts.onPlanePick?.([x + 20_000, y + 20_000, z]));
+    expect(map.model?.draftRoute).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: '删除航路点 2' }));
+    expect(store.routeDraft?.points).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '确认航路' }));
+    const last = store.session.commands().at(-1)!;
+    expect(last.type).toBe('SET_ROUTE');
+    expect(store.routeDraft).toBeNull();
+    expect(map.planeAnchor).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '规划航路' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(store.routeDraft).toBeNull();
+  });
+
+  test('a busy launcher offers to advance to its earliest legal time', () => {
+    const store = new AppStore();
+    store.loadScenario('raid.json');
+    render(<App store={store} />);
+    act(() => void store.dispatch({ type: 'ADVANCE' }));
+    for (const id of store.pendingIds())
+      act(() => void store.dispatch({ type: 'RESOLVE', opportunityId: id, decision: { kind: 'detection', detected: true, classification: { category: 'ship', identity: 'hostile', confidence: 1 } } }));
+    const track = Object.keys(store.state.knowledge['blue-ddg-01']!)[0]!;
+    act(() => void store.dispatch({ type: 'LAUNCH', unitId: 'blue-ddg-01', mountId: 'vls', weaponId: 'asm-x', count: 2, trackId: track }));
+    const t0 = store.state.time;
+    act(() => store.select('unit:blue-ddg-01'));
+    const row = screen.getByText(/发射 垂直发射系统 · ASM-X/).closest('.action') as HTMLElement;
+    expect((within(row).getByRole('button', { name: '执行' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(row).getByRole('button', { name: /推进到/ }));
+    expect(store.state.time).toBe(t0 + 2000);
+    const again = screen.getByText(/发射 垂直发射系统 · ASM-X/).closest('.action') as HTMLElement;
+    expect((within(again).getByRole('button', { name: '执行' }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
