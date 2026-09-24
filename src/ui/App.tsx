@@ -9,6 +9,7 @@ import { OpportunityDialog } from './panels/Opportunity.js';
 import { DetailsPanel, EntityList } from './panels/Details.js';
 import { ActionsPanel } from './panels/Actions.js';
 import { BranchesPanel } from './panels/Branches.js';
+import { Timeline } from './Timeline.js';
 import { LogPanel } from './panels/Log.js';
 import { ConsolePanel } from './panels/Console.js';
 
@@ -179,6 +180,9 @@ function MapView({ store, tones }: { store: AppStore; tones: Record<string, stri
       <ErrorBoundary compact title="裁定窗口出错">
         <OpportunityDialog store={store} />
       </ErrorBoundary>
+      <ErrorBoundary compact title="时间轴出错">
+        <Timeline store={store} />
+      </ErrorBoundary>
     </div>
   );
 }
@@ -286,20 +290,21 @@ function TimePanel({ store }: { store: AppStore }) {
   const s = store.state;
   const pending = Object.values(s.opportunities).filter((o) => o.status === 'pending').length;
   const adv = (cmd: Command) => store.dispatch(cmd);
+  const busy = pending > 0 || !!store.rehearsal;
   return (
     <section className="panel time">
       <div className="clock">{clock(s.time)}</div>
       <div className="row wrap">
-        <button className="primary" disabled={pending > 0} onClick={() => adv({ type: 'ADVANCE', stopAtNotable: true })} title="推进到下一个确定事件或机会">
+        <button className="primary" disabled={busy} onClick={() => adv({ type: 'ADVANCE', stopAtNotable: true })} title="推进到下一个确定事件或机会">
           ▶ 下一事件
         </button>
-        <button disabled={pending > 0} onClick={() => adv({ type: 'ADVANCE' })} title="推进到下一个需要裁定的机会（最多 1 小时）">
+        <button disabled={busy} onClick={() => adv({ type: 'ADVANCE' })} title="推进到下一个需要裁定的机会（最多 1 小时）">
           ⏭ 下一机会
         </button>
-        <button disabled={pending > 0} onClick={() => adv({ type: 'ADVANCE', until: s.time + 60_000 })}>
+        <button disabled={busy} onClick={() => adv({ type: 'ADVANCE', until: s.time + 60_000 })}>
           +1 分
         </button>
-        <button disabled={pending > 0} onClick={() => adv({ type: 'ADVANCE', until: s.time + 600_000 })}>
+        <button disabled={busy} onClick={() => adv({ type: 'ADVANCE', until: s.time + 600_000 })}>
           +10 分
         </button>
       </div>
@@ -313,6 +318,7 @@ function TimePanel({ store }: { store: AppStore }) {
         <span className="muted small">命令 {store.session.commands().length} 条</span>
       </div>
       {pending > 0 && <div className="note warn">有 {pending} 个待裁定机会：裁定后才能继续推进。</div>}
+      {store.rehearsal && <div className="note warn">预演中：地图显示未提交的推进结果，采纳或放弃后才能下令。</div>}
     </section>
   );
 }

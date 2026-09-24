@@ -4,6 +4,9 @@ import { buildMapModel, unitTrail } from '../src/ui/mapModel.js';
 import { trackNumber, groupLabel } from '../src/ui/labels.js';
 import { demoCtx, ddg, detectAll, miniCtx, must, pending } from './helpers.js';
 import type { Ctx } from '../src/rules/world.js';
+import { groupPosition } from '../src/rules/world.js';
+import { positionAt } from '../src/rules/kinematics.js';
+import { timelineMarks } from '../src/ui/timeline.js';
 
 const history = (s: Session) => [s.stateAt(null), ...s.path(s.branch.head).map((n) => s.stateAt(n.id))];
 
@@ -85,5 +88,48 @@ describe('map model', () => {
     expect(trackNumber('red-T12')).toBe('7012');
     expect(trackNumber('weird')).toBe('weird');
     expect(groupLabel('red-MG3')).toBe('MG3');
+  });
+
+  test('preview at a later time follows motion plans and flights without changing state', () => {
+    const ctx = miniCtx([ddg('b1', 'blue', [0, 0, 0], { velocity: [10, 0, 0] }), ddg('r1', 'red', [100_000, 0, 0], { headingDeg: 180 })]);
+    const s = new Session(ctx);
+    must(s, { type: 'ADVANCE', until: 1 });
+    detectAll(s);
+    must(s, { type: 'LAUNCH', unitId: 'r1', mountId: 'vls', weaponId: 'asm-x', count: 4, trackId: 'red-T1' });
+    const before = JSON.stringify(s.state);
+    const g = s.state.groups['red-MG1']!;
+    const t = s.state.time + 60_000;
+    const m = buildMapModel(ctx, history(s), 'god', { at: t });
+    expect(m.preview).toBe(true);
+    expect(m.time).toBe(t);
+    expect(m.entities.find((e) => e.key === 'unit:b1')!.position).toEqual(positionAt(s.state.units['b1']!.motion, t));
+    expect(m.entities.find((e) => e.key === 'group:red-MG1')!.position).toEqual(groupPosition(g, t));
+    // After the salvo's arrival time it is no longer drawn in a preview.
+    expect(buildMapModel(ctx, history(s), 'god', { at: g.arrivalTime + 1 }).entities.some((e) => e.kind === 'group')).toBe(false);
+    // A time in the past is clamped to now (no preview).
+    expect(buildMapModel(ctx, history(s), 'god', { at: 0 }).preview).toBeUndefined();
+    expect(JSON.stringify(s.state)).toBe(before);
+
+    // Side preview: own salvo extrapolated, nothing about the other side appears.
+    const red = JSON.stringify(buildMapModel(ctx, history(s), 'red', { at: t }));
+    expect(red).toContain('red-MG1');
+    const blue = buildMapModel(ctx, history(s), 'blue', { at: t });
+    expect(JSON.stringify(blue)).not.toContain('red-MG1');
+    expect(JSON.stringify(blue)).not.toContain('R1');
+  });
+
+  test('timeline marks: a side sees only its own schedule', () => {
+    const ctx = miniCtx([ddg('b1', 'blue', [0, 0, 0]), ddg('r1', 'red', [100_000, 0, 0], { headingDeg: 180 })]);
+    const s = new Session(ctx);
+    must(s, { type: 'ADVANCE', until: 1 });
+    detectAll(s);
+    must(s, { type: 'LAUNCH', unitId: 'r1', mountId: 'vls', weaponId: 'asm-x', count: 4, trackId: 'red-T1' });
+    must(s, { type: 'SET_ROUTE', unitId: 'b1', waypoints: [{ position: [5000, 0, 0], speedMps: 10 }] });
+    const t0 = s.state.time;
+    const god = timelineMarks(ctx, s.state, 'god', t0, t0 + 3_600_000);
+    expect(god.map((m) => m.kind).sort()).toEqual(['arrival', 'route']);
+    expect(timelineMarks(ctx, s.state, 'blue', t0, t0 + 3_600_000).map((m) => m.kind)).toEqual(['route']);
+    expect(timelineMarks(ctx, s.state, 'red', t0, t0 + 3_600_000).map((m) => m.kind)).toEqual(['arrival']);
+    expect(timelineMarks(ctx, s.state, 'god', t0, t0 + 1000)).toEqual([]);
   });
 });

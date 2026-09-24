@@ -8,6 +8,7 @@ import type { WorldState } from '../state/types.js';
 import type { Vec3 } from '../core/math/vec3.js';
 import { length } from '../core/math/vec3.js';
 import { positionAt, velocityAt } from '../rules/kinematics.js';
+import { applyCommand } from '../events/engine.js';
 import type { Ctx } from '../rules/world.js';
 import type { CameraMode } from '../renderer/TacticalMap.js';
 import { type DemoScript, catalog, scenarios, scripts } from './content.js';
@@ -77,6 +78,8 @@ export class AppStore {
   consoleDraft: { text: string; n: number } | null = null;
   routeDraft: RouteDraft | null = null;
   rehearsal: Rehearsal | null = null;
+  /** Map preview time (null = now). Read-only; never committed or autosaved. */
+  previewAt: number | null = null;
   private version = 0;
   private listeners = new Set<() => void>();
   private modelCache: { v: number; model: MapModel } | null = null;
@@ -112,6 +115,11 @@ export class AppStore {
     return [this.session.stateAt(null), ...this.session.path(this.session.branch.head).map((n) => this.session.stateAt(n.id))];
   }
 
+  /** State the map shows: the rehearsal result while one is open, else the session state. */
+  mapState(): WorldState {
+    return this.rehearsal?.state ?? this.state;
+  }
+
   /** State whose log the log tab shows: the rehearsal while one is open, else the session. */
   logState(): WorldState {
     return this.rehearsal?.state ?? this.state;
@@ -127,8 +135,9 @@ export class AppStore {
     if (this.modelCache?.v !== this.version)
       this.modelCache = {
         v: this.version,
-        model: buildMapModel(this.ctx, this.history(), this.view, {
+        model: buildMapModel(this.ctx, this.rehearsal ? [...this.history(), this.rehearsal.state] : this.history(), this.view, {
           godTracks: this.godTracks,
+          ...(this.previewAt !== null ? { at: this.previewAt } : {}),
           ...(this.routeDraft ? { draftRoute: [this.routePlaneAnchor()!, ...this.routeDraft.points] } : {}),
         }),
       };
@@ -149,6 +158,8 @@ export class AppStore {
     this.planeId = scenario.referencePlanes[0]?.id ?? '';
     this.selected = null;
     this.flash = null;
+    this.routeDraft = null;
+    this.clearTransient();
     if (!scenario.sides.some((s) => s.id === this.view)) this.view = 'god';
     this.changed();
   }
@@ -221,6 +232,7 @@ export class AppStore {
   }
 
   dispatch(cmd: Command): ApplyResult {
+    this.clearTransient();
     const before = new Set(this.pendingIds());
     const r = this.session.dispatch(cmd);
     // New rulings owed → bring the dialog back even if it was minimised.
@@ -231,11 +243,13 @@ export class AppStore {
   }
 
   undo(): void {
+    this.clearTransient();
     if (this.session.undo()) this.changed();
   }
 
   /** Undo until `nodeId` (null = scenario start) is the head; it must be on the current path. */
   undoTo(nodeId: string | null): void {
+    this.clearTransient();
     const onPath = nodeId === null || this.session.path(this.session.branch.head).some((n) => n.id === nodeId);
     if (!onPath) return;
     let moved = false;
@@ -245,6 +259,7 @@ export class AppStore {
 
   switchBranch(id: string): void {
     if (id === this.session.branch.id) return;
+    this.clearTransient();
     this.session.switchBranch(id);
     this.routeDraft = null;
     this.changed();
@@ -252,12 +267,50 @@ export class AppStore {
 
   /** New branch whose head is `nodeId` (null = scenario start); switches to it. */
   forkAt(name: string, nodeId: string | null): void {
+    this.clearTransient();
     this.session.fork(name.trim() || 'branch', nodeId);
     this.routeDraft = null;
     this.changed();
   }
   redo(): void {
+    this.clearTransient();
     if (this.session.redo()) this.changed();
+  }
+
+  // --- preview / rehearsal ------------------------------------------------
+
+  /** Drop the map preview and any rehearsal (both describe a state that no longer exists). */
+  private clearTransient(): void {
+    this.previewAt = null;
+    this.rehearsal = null;
+  }
+
+  setPreviewAt(t: number | null): void {
+    this.previewAt = t !== null && t > this.mapState().time ? t : null;
+    this.changed(false);
+  }
+
+  /** Dry-run an ADVANCE on a copy of the current state; nothing enters the session. */
+  rehearse(cmd: Extract<Command, { type: 'ADVANCE' }>): void {
+    const r = applyCommand(this.ctx, this.state, cmd, this.session.commands().length);
+    if (!r.result.ok) {
+      this.flash = { kind: 'error', text: '无法预演', verdict: r.result.verdict };
+    } else {
+      this.rehearsal = { cmd, state: r.state, events: r.result.events };
+      this.previewAt = null;
+    }
+    this.changed(false);
+  }
+
+  /** Commit the rehearsed ADVANCE (deterministic: the same events happen). */
+  adoptRehearsal(): void {
+    const r = this.rehearsal;
+    if (r) this.dispatch(r.cmd);
+  }
+
+  discardRehearsal(): void {
+    this.clearTransient();
+    this.changed(false);
   }
 
   // --- ui state -----------------------------------------------------------

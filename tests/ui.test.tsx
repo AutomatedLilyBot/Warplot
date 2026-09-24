@@ -75,7 +75,7 @@ describe('Phase 3 interface', () => {
   test('opportunity details stay hidden in a side view and can be ruled in god view', () => {
     const store = new AppStore();
     render(<App store={store} />);
-    fireEvent.click(screen.getByRole('button', { name: /下一事件/ }));
+    fireEvent.click(screen.getByRole('button', { name: /▶ 下一事件/ }));
     const pending = () => Object.values(store.state.opportunities).filter((o) => o.status === 'pending').length;
     expect(pending()).toBeGreaterThan(0);
 
@@ -93,7 +93,7 @@ describe('Phase 3 interface', () => {
   test('opportunity dialog pages, minimises, reopens on new chances and batch-rules detections', () => {
     const store = new AppStore();
     render(<App store={store} />);
-    fireEvent.click(screen.getByRole('button', { name: /下一事件/ }));
+    fireEvent.click(screen.getByRole('button', { name: /▶ 下一事件/ }));
     const pending = () => Object.values(store.state.opportunities).filter((o) => o.status === 'pending');
     const n = pending().length;
     expect(n).toBeGreaterThan(2);
@@ -148,7 +148,7 @@ describe('Phase 3 interface', () => {
 
     await waitFor(() => expect(screen.getByText(/载入失败/)).toBeTruthy());
     expect(store.exportSession()).toBe(before);
-    expect(screen.getByRole('button', { name: /下一事件/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /▶ 下一事件/ })).toBeTruthy();
   });
 
   test('a WebGL startup failure keeps the sidebar usable', () => {
@@ -156,7 +156,7 @@ describe('Phase 3 interface', () => {
     const store = new AppStore();
     render(<App store={store} />);
     expect(screen.getByRole('heading', { name: '3D 地图无法启动' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /下一事件/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /▶ 下一事件/ })).toBeTruthy();
   });
 
   test('actions panel executes legal commands, greys illegal ones and copies them as JSON', () => {
@@ -280,5 +280,38 @@ describe('Phase 3 interface', () => {
     fireEvent.click(screen.getByRole('button', { name: '战斗编年 TXT' }));
     expect(click).toHaveBeenCalledTimes(2);
     click.mockRestore();
+  });
+
+  test('timeline preview is read-only; rehearsal can be discarded or adopted', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    const map = mapMock.instances[0]!;
+    const t0 = store.state.time;
+    const n0 = store.session.commands().length;
+    fireEvent.change(screen.getByRole('slider', { name: '预览时刻' }), { target: { value: String(t0 + 600_000) } });
+    expect(store.previewAt).toBe(t0 + 600_000);
+    expect(map.model?.preview).toBe(true);
+    expect(screen.getByText(/预览（未提交/)).toBeTruthy();
+    expect(store.session.commands()).toHaveLength(n0);
+    expect(localStorage.getItem('warplot:autosave:v1') ?? '').not.toContain(String(t0 + 600_000));
+    fireEvent.click(screen.getByRole('button', { name: '回到现在' }));
+    expect(store.previewAt).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '预演下一机会' }));
+    const banner = screen.getByRole('status', { name: '预演' });
+    expect(store.rehearsal).not.toBeNull();
+    expect(store.state.time).toBe(t0);
+    expect(map.model!.time).toBeGreaterThanOrEqual(t0);
+    expect((screen.getByRole('button', { name: /▶ 下一事件/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(banner).getByRole('button', { name: '放弃' }));
+    expect(store.rehearsal).toBeNull();
+    expect(store.session.commands()).toHaveLength(n0);
+
+    fireEvent.click(screen.getByRole('button', { name: '预演下一机会' }));
+    const rehearsed = store.rehearsal!.state;
+    fireEvent.click(within(screen.getByRole('status', { name: '预演' })).getByRole('button', { name: '采纳' }));
+    expect(store.rehearsal).toBeNull();
+    expect(store.session.commands()).toHaveLength(n0 + 1);
+    expect(JSON.stringify(store.state)).toBe(JSON.stringify(rehearsed));
   });
 });
