@@ -78,13 +78,55 @@ describe('Phase 3 interface', () => {
 
     fireEvent.click(within(screen.getByRole('group', { name: '视角' })).getByRole('button', { name: '蓝方' }));
     expect(screen.queryByRole('button', { name: '探测到' })).toBeNull();
-    expect(screen.getByText('机会属于作者层信息，本阵营视角不显示内容。')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '待裁定机会' }).textContent).toContain('本阵营视角不显示内容');
 
     fireEvent.click(screen.getByRole('button', { name: '切换到上帝视角裁定' }));
     const before = pending();
-    fireEvent.click(screen.getAllByRole('button', { name: '探测到' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: '探测到' }));
     expect(pending()).toBe(before - 1);
     expect(store.state.log.some((e) => e.kind === 'DETECTION')).toBe(true);
+  });
+
+  test('opportunity dialog pages, minimises, reopens on new chances and batch-rules detections', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    fireEvent.click(screen.getByRole('button', { name: /下一事件/ }));
+    const pending = () => Object.values(store.state.opportunities).filter((o) => o.status === 'pending');
+    const n = pending().length;
+    expect(n).toBeGreaterThan(2);
+    const dialog = () => screen.getByRole('dialog', { name: '待裁定机会' });
+    expect(within(dialog()).getByText(`1 / ${n}`)).toBeTruthy();
+    fireEvent.click(within(dialog()).getByRole('button', { name: '下一个' }));
+    expect(within(dialog()).getByText(`2 / ${n}`)).toBeTruthy();
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: '最小化' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: `待裁定 ${n}` }));
+    expect(dialog()).toBeTruthy();
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: /其余 \d+ 个探测机会全部/ }));
+    expect(pending()).toHaveLength(1);
+    fireEvent.click(within(dialog()).getByRole('button', { name: '探测到' }));
+    expect(pending()).toHaveLength(0);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // Minimised, then new chances arrive: the dialog comes back.
+    store.setOppMinimized(true);
+    act(() => void store.dispatch({ type: 'ADVANCE' }));
+    expect(pending().length).toBeGreaterThan(0);
+    expect(store.oppMinimized).toBe(false);
+    expect(screen.getByRole('dialog', { name: '待裁定机会' })).toBeTruthy();
+  });
+
+  test('sidebar tabs switch panels and remember the choice', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    fireEvent.click(screen.getByRole('tab', { name: '日志' }));
+    expect(screen.getByRole('heading', { name: /事件日志/ })).toBeTruthy();
+    expect(localStorage.getItem('warplot:tab')).toBe('log');
+    fireEvent.click(screen.getByRole('tab', { name: '高级' }));
+    expect(screen.getByRole('heading', { name: '命令台' })).toBeTruthy();
+    expect(new AppStore().tab).toBe('advanced');
   });
 
   test('file input reports a corrupt session without losing the current work', async () => {

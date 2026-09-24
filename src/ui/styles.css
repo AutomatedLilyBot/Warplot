@@ -141,3 +141,20 @@ dd.truth { color: var(--warn); }
 .crash.compact { position: absolute; inset: 16px; margin: 0; max-width: none; overflow: auto; }
 .crash h2 { margin: 0 0 8px; font-size: 16px; color: var(--error); }
 .crash ul { padding-left: 18px; }
+
+/* --- Phase 5: sidebar tabs, opportunity dialog ------------------------------ */
+.sidebar-fixed { display: flex; flex-direction: column; gap: 8px; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); gap: 2px; }
+.tabs button { border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; background: none; color: var(--muted); padding: 5px 14px; }
+.tabs button.on { background: var(--panel); border-color: var(--line); color: var(--text); margin-bottom: -1px; }
+.tab-body { display: flex; flex-direction: column; gap: 8px; }
+.opp-dialog {
+  position: absolute; top: 44px; left: 50%; transform: translateX(-50%); z-index: 5;
+  width: min(460px, calc(100% - 24px)); max-height: calc(100% - 120px); overflow-y: auto;
+  background: var(--panel); border: 1px solid #7a6320; border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+.opp-dialog .card { margin-top: 6px; }
+.opp-dialog .pager button { padding: 0 8px; }
+.opp-dialog .batch { margin-top: 8px; width: 100%; }
+.opp-pill { position: absolute; top: 8px; right: 8px; z-index: 5; }

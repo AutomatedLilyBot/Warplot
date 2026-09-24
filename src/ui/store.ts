@@ -11,6 +11,19 @@ import { type DemoScript, catalog, scenarios, scripts } from './content.js';
 import { type MapModel, type ViewId, buildMapModel } from './mapModel.js';
 
 const SAVE_KEY = 'warplot:autosave:v1';
+const TAB_KEY = 'warplot:tab';
+
+export type SidebarTab = 'situation' | 'log' | 'branches' | 'advanced';
+const TABS: SidebarTab[] = ['situation', 'log', 'branches', 'advanced'];
+
+function readTab(): SidebarTab {
+  try {
+    const t = localStorage.getItem(TAB_KEY) as SidebarTab | null;
+    return t && TABS.includes(t) ? t : 'situation';
+  } catch {
+    return 'situation';
+  }
+}
 
 /** Drop the browser autosave (e.g. after it stopped replaying). */
 export function clearAutosave(): void {
@@ -38,6 +51,12 @@ export class AppStore {
   planeId = '';
   godTracks = false;
   flash: Flash | null = null;
+  /** Sidebar tab (a per-viewer convenience, remembered in localStorage). */
+  tab: SidebarTab = readTab();
+  /** Opportunity dialog collapsed to a pill so the author can look at the map first. */
+  oppMinimized = false;
+  /** Text handed to the advanced JSON console (e.g. "copy as JSON" from an action). */
+  consoleDraft: { text: string; n: number } | null = null;
   private version = 0;
   private listeners = new Set<() => void>();
   private modelCache: { v: number; model: MapModel } | null = null;
@@ -71,6 +90,12 @@ export class AppStore {
   /** States along the current branch, root first. */
   history(): WorldState[] {
     return [this.session.stateAt(null), ...this.session.path(this.session.branch.head).map((n) => this.session.stateAt(n.id))];
+  }
+
+  pendingIds(): string[] {
+    return Object.values(this.state.opportunities)
+      .filter((o) => o.status === 'pending')
+      .map((o) => o.id);
   }
 
   mapModel(): MapModel {
@@ -165,7 +190,10 @@ export class AppStore {
   }
 
   dispatch(cmd: Command): ApplyResult {
+    const before = new Set(this.pendingIds());
     const r = this.session.dispatch(cmd);
+    // New rulings owed → bring the dialog back even if it was minimised.
+    if (r.ok && this.pendingIds().some((id) => !before.has(id))) this.oppMinimized = false;
     this.flash = r.ok ? null : { kind: 'error', text: `${cmd.type} 被拒绝`, verdict: r.verdict };
     this.changed();
     return r;
@@ -208,6 +236,27 @@ export class AppStore {
     this.godTracks = on;
     this.modelCache = null;
     this.changed(false);
+  }
+
+  setTab(tab: SidebarTab): void {
+    this.tab = tab;
+    try {
+      localStorage.setItem(TAB_KEY, tab);
+    } catch {
+      /* storage unavailable */
+    }
+    this.changed(false);
+  }
+
+  setOppMinimized(on: boolean): void {
+    this.oppMinimized = on;
+    this.changed(false);
+  }
+
+  /** Open the advanced console with this command filled in. */
+  editAsJson(cmd: Command): void {
+    this.consoleDraft = { text: JSON.stringify(cmd, null, 1), n: (this.consoleDraft?.n ?? 0) + 1 };
+    this.setTab('advanced');
   }
 
   clearFlash(): void {
