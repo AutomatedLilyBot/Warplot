@@ -2,14 +2,14 @@
 
 > 面向含超视距海战的小说写作：程序是物理与资源约束检验器、战役推演棋盘和可追溯的计算工具。作者决定设定与剧情，也可以让自动策略或将来的 LLM 操作棋盘。
 
-本文的 Phase 1–3 描述已实现的基线；第 7 节描述目标需求与实施顺序。目标需求不表示当前程序已经具备这些能力。
+本文的 Phase 1–4 描述已实现的基线；第 7 节描述目标需求与实施顺序。目标需求不表示当前程序已经具备这些能力。
 
 ## 1. 需求摘要
 
 | 类别 | 程序负责（确定性） | 作者负责（不确定 / 主观） |
 |---|---|---|
 | 运动 | 航路点移动、加减速、到达时间、姿态转向 | 往哪走、何时转向 |
-| 信息 | 信号传播、探测约束、谁在什么时候知道什么、数据链延迟、航迹时龄 | 探测结果、质量等级、分类以及设定中的例外 |
+| 信息 | 信号传播、探测约束、谁在什么时候知道什么、数据链延迟、航迹时龄 | 探测结果、存在概率、分类、测量偏移（限 95% 置信区域）以及设定中的例外 |
 | 武器 | 射程、射界、库存、发射器冷却、火控/照射器占用、飞行时间 | 打谁、何时打、打几发 |
 | 结果 | 合法结果区间 + 上下界来源（reason tree） | 在区间内拍板（拦截几枚、命中几枚） |
 | 记录 | 事件日志、因果链、撤销、分支、JSON 导出 | 选择剧情方向、覆盖具体损伤结果 |
@@ -20,7 +20,8 @@
 - 不确定事件 → **机会（Opportunity）** → 时间自动停下 → 作者裁定，或由作者预设的策略在合法区间内裁定；所有自动裁定都要可审计、可撤销。
 - 阵营视图只含该阵营真正知道的信息，**白名单投影**，而非“真值删字段”。
 - 状态 = 初始状态 + 命令日志重放；支持 undo / redo / fork。
-- **传播先于获知**：任何探测、被动截获、数据链消息都不得让接收者取得尚未到达的信息；远距场景必须保留发射时刻、到达时刻和信息时龄。
+- **测量误差不掷骰**：测量均值取传感器对真值状态的无偏估计，随机误差只进入协方差；作者可显式加测量偏移，但须落在该次测量的 95% 置信区域内（见 4.5）。
+- **传播先于获知**（目标原则）：任何探测、被动截获、数据链消息都不得让接收者取得尚未到达的信息；远距场景必须保留发射时刻、到达时刻和信息时龄。当前只有数据链按有限速传播；航迹已预留观测时刻 `observedAt` 与接收时刻 `receivedAt`，探测的有限速传播在 Phase 5 之后的物理模型中实现（见 7.1、第 8 节）。
 
 ## 2. 最小技术架构
 
@@ -36,10 +37,10 @@
 │ Engine：applyCommand(state, cmd) → state' + events（纯函数，确定性）     │
 │   ADVANCE → Scheduler 求“下一件事” → 跳到该时刻 → 处理 → 遇机会即停     │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Rules（纯函数）：kinematics · detection · comms · weapons · arcs ·       │
-│                  attitude（约束集求解）· resources · search（跨越时刻搜索）│
+│ Rules（纯函数）：kinematics · detection · tracks（测量/协方差）· comms ·  │
+│   weapons · arcs · attitude（约束集求解）· resources · search（跨越时刻搜索）│
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Core：vec3 / quat / geometry · SimTime(整数 ms) · Explanation 树          │
+│ Core：vec3 / quat / mat3 / geometry / stats · SimTime(整数 ms) · Explanation│
 └─────────────────────────────────────────────────────────────────────────┘
                  ▲ 未来：版本化的本地 API / MCP 适配器，同样调用 Session
 ```
@@ -52,11 +53,15 @@
 ## 3. 核心数据类型（摘要，完整见源码）
 
 静态定义 `src/state/defs.ts`：
-- `SensorDef`（现状 / 待迁移）：仍有 `rangeM`、`maxQuality`、`emits`、`requiresTargetEmission`（ESM）、`reofferIntervalS`、`targetCategories`；其中 `rangeM × quality` 属于旧探测模型，Phase 4 之后由物理探测模型、测量协方差和分类结果替代。
-- `WeaponDef`（现状 / 待迁移）：仍有速度、射程、`requiredQuality`、`maxTrackAgeS`；反舰/炮弹：`seekerBasketM`、`terminalBounds`；拦截弹：`engagementCycleS`、`salvoPerEngagement`、`killBounds`、`fireControlChannels`、`illuminatorTimeS`。其中 `requiredQuality` 将删除：武器能否发射/命中的判断改由交战规则、目标分类可信度、航迹概率分布、预测交会误差、导引头捕获区和目标机动共同决定。
+- `SensorDef`：`kind`、`targetCategories`（可搜索的目标类别）、`rangeM`、`emits`、`requiresTargetEmission`（ESM）、`reofferIntervalS`，以及测量模型 `measurement`：
+  - `{ kind: 'bearing', angleSigmaDeg }`：纯方位测量；
+  - `{ kind: 'position', angleSigmaDeg, rangeSigmaM, velocitySigmaMps }`：定位测量。
+  各项是无偏测量的 1σ 误差。`rangeM × signature` 仍是旧的探测几何占位（见第 8 节），将由 7.2 的雷达方程取代。
+- `WeaponDef`：速度、射程、`targetCategories`（可用于的目标类别）与 `minClassificationConfidence`；反舰/炮弹：`seekerBasketM`、`terminalBounds`；拦截弹：`engagementCycleS`、`salvoPerEngagement`、`killBounds`、`fireControlChannels`、`illuminatorTimeS`。武器不再要求航迹等级或航迹时龄，发射判据见 4.5。
 - `MountDef`（判别联合）：`vls`（全向）｜`turret`（方位/俯仰范围、转速、遮挡区、独占资源）｜`fixed`（`boresight` + `halfAngleDeg`，依赖舰体姿态）
 - `ResourceDef`：`attitude`｜`exclusive`｜`capacity`
-- `Scenario`：阵营、参考平面（origin + normal）、遮挡球体、单位、数据链、信号速度
+- `Scenario`：阵营、参考平面（origin + normal）、遮挡球体、单位、数据链、信号速度；可选的阵营交战规则 `roe: { [side]: { weaponsRelease: 'free' | 'tight', minHostileConfidence } }`（缺省为 free），以及航迹外推的未知机动强度 `trackPrediction: { velocityDriftMpsPerMin }`（1σ 速度漂移，按每分钟计的随机游走，缺省 2 m/s）。
+- `UnitClassDef` 与单位 `loadout` 是过渡格式，将由 7.3 的船体—模块—弹药编成取代。
 
 运行时状态 `src/state/types.ts`：
 ```ts
@@ -67,35 +72,36 @@ WorldState {
   knowledge: Record<UnitId, Record<TrackId, Track>>  // 每个平台自己的信息状态
   truth: { trackTargets }               // 航迹 → 真实实体（仅裁判/上帝视角）
   messages: PendingMessage[]            // 在途数据链报文（快照）
-  engagements, opportunities, log: SimEvent[]
+  engagements, opportunities, lastOffered, reportedArrivals, seq, log: SimEvent[]
 }
-Track { id, quality, estimate: position | bearing, lastUpdate, holds: {sensorId→quality}, provenance: eventId[] }
 ```
-> 上述 `quality` 字段属于 Phase 1–3 的旧实现。Phase 4 之后迁移时删除离散航迹质量阶梯，不再使用 `NONE < DETECTED < BEARING_ONLY < LOCALIZED < CLASSIFIED < WEAPON_SUPPORT < FIRE_CONTROL`。
 
-新的航迹模型拆成三个彼此独立的维度：
-
-- **存在/关联可信度**：表示当前观测是否足以维持一个目标假设，可用存在概率、关联概率或等价统计量表示；不是“探测质量等级”。
-- **空间状态**：只粗分为 `BEARING_ONLY` 与 `LOCALIZED` 两种结构。`BEARING_ONLY` 保存方位/视线约束及其角度协方差；`LOCALIZED` 保存位置、速度等状态估计及协方差/概率区域。定位精度连续变化，不再映射成 `WEAPON_SUPPORT` / `FIRE_CONTROL` 等离散档位。
-- **分类状态**：与空间精度完全分离，例如 `classification = { hypotheses, confidence, identity? }`。目标可以“定位很准但不知道是什么”，也可以“分类很确定但位置仍只有方位线”。
-
-目标结构可迁移为类似：
+航迹由三个彼此独立的维度组成（Phase 4 起取代离散航迹质量阶梯 `NONE < … < FIRE_CONTROL`）：
 
 ```ts
 Track {
-  id,
-  existenceProbability,
-  spatial: BearingTrack | LocalizedTrack,
-  classification: ClassificationState,
-  lastUpdate,
+  id, side,
+  existence: number,                  // 存在概率 (0, 1]，目前由作者裁定
+  spatial:
+    | { kind: 'BEARING_ONLY', origin, direction, angleSigmaRad }        // 视线 + 各向同性角度误差
+    | { kind: 'LOCALIZED', position, velocity, posCov, velCov },        // 均值 + 3×3 协方差（m², (m/s)²）
+  classification: { category?, label?, identity, confidence } | null,  // 与空间精度无关
+  observedAt, receivedAt,             // 观测描述的时刻 / 本平台收到的时刻
+  holds: Record<sensorId, { offsetW }>,  // 正在保持该目标的本平台传感器及白化后的作者偏移
   provenance: eventId[]
 }
 ```
 
-武器不再要求某个 `TrackQuality`。是否允许发射属于交战规则/识别条件；是否可能命中则由发射时刻的航迹概率分布向武器到达时刻传播后，与武器可达域、末制导搜索/捕获区域、目标机动不确定性和武器自身误差联合计算。`fire_control` 仍可作为照射器、制导链路或计算资源的名称，但不再是航迹等级。
+- **存在/关联可信度**：表示当前观测是否足以维持一个目标假设，不是“探测质量等级”。
+- **空间状态**：只分 `BEARING_ONLY` 与 `LOCALIZED` 两种结构，定位精度由协方差连续表示，不再映射成 `WEAPON_SUPPORT` / `FIRE_CONTROL` 等档位。
+- **分类状态**：目标可以“定位很准但不知道是什么”，也可以“分类很确定但位置仍只有方位线”。`identity` 取 `hostile | neutral | friendly | unknown`。
+- `holds` 非空时，航迹在每个事件时刻按保持它的传感器重新测量；调度器据此计算失联时刻。阵营视图只列出保持中的传感器，不含作者偏移（偏移是作者对测量误差的选择，不是该阵营知道的信息）。
+- `fire_control` 仍是火控通道等资源的名称，不是航迹等级。
 
 命令 `src/events/types.ts`（当前均由作者经 UI/脚本输入；将来策略与 API 也调用同一命令层）：
-`ADVANCE · SET_ROUTE · SET_SENSOR · TRANSMIT · LAUNCH · ENGAGE · ALIGN · MANEUVER · RELEASE_CLAIM · RESOLVE · SET_UNIT_STATUS · NOTE`
+`ADVANCE · SET_ROUTE · SET_SENSOR · TRANSMIT · LAUNCH · ENGAGE · ALIGN · MANEUVER · RELEASE_CLAIM · RESOLVE · CLASSIFY · SET_UNIT_STATUS · NOTE`
+
+`CLASSIFY` 设置或清除某平台对一条航迹的分类；分类与探测脱钩，可以来自后续识别或情报。
 
 事件：
 ```ts
@@ -124,17 +130,55 @@ EventBody { actor, action, target, summary, requires: Fact[], produces: Fact[], 
 “某条件何时首次成立”用**保守推进**求解：每次探测返回一个安全步长（如 `(距离−射程)/最大接近速度`、视线到遮挡球的净空/最大速度），再二分到 1 ms。结果精确、确定、可解释。
 
 机会类型：
-- `detection`：几何/规则上开始可能探测。作者裁定 探测到（选质量 ≤ 传感器上限，可关联已有航迹）/未探测到（理由：clutter / attention / emission_control / sensor_degradation / other）。未探测到的机会在 `reofferIntervalS` 后再次提供。
+- `detection`：几何/规则上开始可能探测。作者裁定：
+  - 探测到：可填存在概率、分类（类别/名称/敌我/置信度）、测量偏移，并可关联已有航迹。空间结构由传感器测量模型决定（纯方位传感器只能得到方位线），协方差由测量模型计算，作者不能直接指定。
+  - 未探测到：理由 clutter / attention / emission_control / sensor_degradation / other。
+  同一“平台—传感器—目标”组合在上次**提供机会**的时刻起 `reofferIntervalS` 内不再提供；这也适用于失去保持后的重新探测。已被本平台跟踪的目标，若该传感器只测方位，或已有定位传感器在保持，也不再提供新机会。
 - `intercept`：交战窗口结束，作者在 `[min, max]` 中选择拦截数。
 - `impact`：弹群到达，若目标在导引头捕获范围内，作者在 `[min, max]` 中选择命中数。
 
 区间退化为单点（例如目标已逃出捕获范围 → `[0,0]`）时自动裁定并记录——**只有真正存在选择时才打扰作者**。存在待裁定机会时 `ADVANCE` 非法。
 
-**拦截区间（可解释）**
+**拦截区间（可解释）**（不占用火控通道的武器，每个发射装置只有 1 个交战通道）
 ```
 E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, 照射器 × ⌊窗口/照射时间⌋ )   ← 标注瓶颈
 区间 = [ ⌊E×lo⌋, min(⌊E×hi⌋, 剩余) ]
 ```
+
+## 4.5 Phase 4：测量、航迹不确定度与交战判据
+
+**测量。** 每次测量在观测几何中取正交基：视线 `u`、水平右向 `e1`、与视线垂直的“上”向 `e2`。定位测量的协方差为
+
+```
+Σ = σR² uuᵀ + (R·σθ)² (e1e1ᵀ + e2e2ᵀ)
+```
+
+纯方位测量在方位/俯仰两个角度上各取 σθ。均值 = 真值 + 作者偏移；引擎从不采样随机误差，重放逐字节一致。同一平台有多个定位传感器保持同一目标时，按信息形式融合：`Σ⁻¹ = Σ Σᵢ⁻¹`，均值按信息加权（与顺序无关）；纯方位保持不改变已有定位估计。
+
+**作者测量偏移。** 用于剧情需要、已知系统偏差或选定一次具体的测量误差实现。偏移不得任意取值，必须落在无偏测量的 95% 联合置信区域内：
+
+- 定位测量：`bᵀΣ⁻¹b ≤ χ²₃,₀.₉₅ ≈ 7.815`，输入为径向/横向/垂向偏移（m），测量中心变为 `x̂ = x̂₀ + b`；
+- 纯方位测量：在角度空间用 `χ²₂,₀.₉₅ ≈ 5.991`，输入为方位/俯仰偏移（°）。
+
+超出区域的偏移被拒绝，并在理由中给出 χ² 值。偏移以白化坐标保存（每个测量轴上的 σ 倍数），几何变化时随 Σ 一起缩放，始终留在 95% 区域内。
+
+设备故障、标定错误、敌方欺骗、异常环境等情形，应先修改测量模型或测量均值，随机测量协方差再围绕这个有偏均值展开；不能借作者偏移绕过 95% 限制。此机制属于 7.2 的 EW 与设备损伤，目前尚未实现。
+
+**外推。** 定位航迹的均值按估计速度匀速外推；协方差
+
+```
+Σ(t) = Σp + Δt² Σv + q Δt³/3 · I,   q = drift² / 60 s
+```
+
+其中 `drift` 是想定的 `trackPrediction.velocityDriftMpsPerMin`（未知机动按速度随机游走）。数据链转发的航迹保留原 `observedAt`，接收方外推时协方差继续增大。
+
+**交战判据。**
+- 是否**允许**发射：航迹须为 `LOCALIZED`；阵营 ROE 为 `tight` 时，分类须为敌对且置信度 ≥ `minHostileConfidence`；武器声明了 `targetCategories` 时，分类类别须匹配且置信度 ≥ `minClassificationConfidence`。
+- 拦截（`ENGAGE`）另要求航迹当前由本平台传感器持续跟踪（数据链转发的航迹不能引导拦截），这是制导约束，不是航迹等级。
+- 是否**可能命中**只作提示：`LAUNCH` 把航迹协方差外推到预计到达时刻，给出目标落入导引头捕获区的概率 P（中心高斯落入球内的概率，按 Ruben 级数确定性计算）及 95% 椭球半轴；`ENGAGE` 给出窗口开始时的椭球。P 写入解释树和发射事件，不影响合法性。导弹自身制导误差尚未计入。
+- 命中区间仍由裁判按真值判断目标是否落入瞄准点周围的捕获区。作者偏移会通过瞄准点自然影响结果。
+
+旧版会话（探测裁定含 `quality`）在载入时被拒绝，并提示“旧版会话格式”。
 
 ## 5. 资源 / 姿态约束系统
 
@@ -152,8 +196,8 @@ E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, �
 
 ## 5.5 Phase 2：测试与 golden scenarios
 
-**单元测试**（`tests/*.test.ts`）按规则分文件：运动、探测、信息传播、合法性、姿态、资源、拦截、飞行、重放、视图、数据校验、杂项。
-`npm run coverage` 查看覆盖率（当前行覆盖约 98%）。
+**单元测试**（`tests/*.test.ts`）按规则分文件：运动、探测、信息传播、航迹不确定度与交战判据（tracks）、数学与统计（stats）、合法性、姿态、资源、拦截、飞行、重放、视图、数据校验、杂项；另有架构守卫（architecture）、渲染坐标（frame）、地图模型（mapModel）、会话存储（store）、地图生命周期（tacticalMap）和界面交互（ui）。
+`npm run coverage` 查看覆盖率：它统计整个 `src/**`，当前行覆盖约 92%；只算规则核心（core / state / rules / events）约 99%。
 
 **Golden scenarios**（`tests/golden/`）是“剧本 + 期望输出”：
 
@@ -170,7 +214,7 @@ E = min( 通道数 × ⌊窗口/循环⌋, ⌊库存/齐射⌋, 弹群剩余, �
 | `{"do": Command}` | 必须合法并执行 |
 | `{"reject": Command, "because": "…", "earliest"?: "HH:MM:SS.mmm"}` | 必须被拒绝，理由须包含该文字；可断言最早可行时间 |
 | `{"waitUntilLegal": Command}` | 推进到该命令最早可行时刻（不执行它） |
-| `{"expect": {...}}` | 断言：`time` `pending` `bounds` `ammo` `knows` `track` `classification` `groupCount` `hits` `claims` `sideExcludes` |
+| `{"expect": {...}}` | 断言：`time` `pending` `bounds` `ammo` `knows` `track`（空间结构）`classification`（分类类别，未分类为 null）`groupCount` `hits` `claims` `sideExcludes` |
 | `{"mark": "名字"}` / `{"fork": "分支", "at"?: "名字"}` / `{"switch": "分支"}` / `{"undo": n}` | 分支与撤销 |
 
 现有剧本：01 无人机引导打击（信息传播与因果链）· 02 分层防空（区间与瓶颈、姿态让出射界）· 03 轴炮与规避争夺舰体姿态 · 04 同一开局的两条分支。
@@ -190,13 +234,13 @@ Session ──► AppStore（src/ui/store.ts）──► buildMapModel(ctx, hist
 - **MapModel**（`src/ui/mapModel.ts`）：把上帝视角或某阵营的投影压成“要画的东西”列表。阵营模型只由 `projectSideView` 构建，敌方身份/位置无法进入渲染器（有测试）。
   - 单位：位置、舰首方向、已走航迹（沿命令历史逐段采样，分段匀加速运动的分段点即精确折线）、计划航路；
   - 弹群：当前位置、发射点→瞄准点弹道；发射方只看到发射数量；
-  - 航迹：多平台合并取最新；纯方位航迹画方位线，不给位置。
+  - 航迹：多平台合并取观测时刻最新者；纯方位航迹画方位线，不给位置。副标签为分类名称，未分类时显示 `BRG ±角度` 或 `LOC ±95% 最大半轴`。
 - **TacticalMap**（`src/renderer/TacticalMap.ts`，纯 Three.js，不依赖 React/引擎）：
   - 世界坐标米、+Z 向上；渲染坐标 = (世界 − 浮动原点) / 1000（km）。聚焦某单位即把浮动原点移过去；
   - 镜头：透视（可旋转）/ 俯视 / 侧视（正交，沿参考面法向或面内方向）；
   - 参考面由 origin + normal 定义，网格按场景尺度自动取整；每个单位有到参考面的高度投影线与落点；
   - 图标与文字标签按屏幕像素定尺寸（任意缩放都清晰）；点击拾取单位/弹群/航迹。
-- **侧边栏**：时钟与推进（下一事件 / 下一机会 / +1 分 / +10 分）、撤销/重做、机会裁定表单（上帝视角；阵营视角只提示“切换到上帝视角”）、所选对象详情（传感器开关可直接下令）、态势列表、事件日志（关键字可点击定位）、JSON 命令台（模板 + 检查 + 执行）。
+- **侧边栏**：时钟与推进（下一事件 / 下一机会 / +1 分 / +10 分）、撤销/重做、机会裁定表单（上帝视角；阵营视角只提示“切换到上帝视角”；探测裁定可填存在概率、分类与测量偏移，偏移越界时实时显示 χ² 并禁止提交）、所选对象详情（传感器开关可直接下令；航迹显示空间结构、95% 椭球、分类、观测/接收时刻）、态势列表、事件日志（关键字可点击定位）、JSON 命令台（模板 + 检查 + 执行）。
 - **显示层转义**：航迹 `blue-T1` 显示为 `7001`（上帝视角加阵营前缀），弹群 `red-MG3` 显示为 `MG3`；核心 id 不变。
 - **会话**：自动保存到浏览器本地（仅作便利），可下载/载入会话 JSON；示例剧本（golden scripts）可在“想定”菜单中直接重放。
 - **架构守卫**：`tests/architecture.test.ts` 保证 `core/state/rules/events` 不引用 three/react/DOM，渲染器不引用引擎内部。
@@ -206,14 +250,15 @@ Session ──► AppStore（src/ui/store.ts）──► buildMapModel(ctx, hist
 ```
 /data            sensors.json · weapons.json · units.json（单位级别定义）
 /scenarios       demo_scenario.json · recon_strike.json · raid.json · axial_duel.json
-/docs            DESIGN.md
+/docs            DESIGN.md · ISSUES.md（审查问题记录）
 /src
-  /core          math（vec3, quat, geometry）· time · explain
+  index.ts       核心公开 API
+  /core          math（vec3, quat, mat3, geometry, stats）· time · explain
   /state         defs（静态定义）· types（运行时状态）· load · view（阵营/上帝投影）
-  /rules         kinematics · world · search · detection · comms · arcs · attitude · resources · weapons
+  /rules         kinematics · world · search · detection · tracks（测量/协方差/外推）· comms · arcs · attitude · resources · weapons
   /events        types（命令/事件/机会）· engine · scheduler · session · export · chronicle
   /renderer      frame（浮动原点/参考面基）· glyphs（图标/标签纹理）· TacticalMap
-  /ui            mapModel · labels · store · content · App.tsx · main.tsx · styles.css
+  /ui            mapModel · labels · store · content · App.tsx · ErrorBoundary.tsx · main.tsx · styles.css
 /tests           vitest 单元测试
   /golden        scripts/*.json（剧本）· __golden__/*.txt（期望的战斗编年）· runner.ts
 ```
@@ -222,12 +267,13 @@ Session ──► AppStore（src/ui/store.ts）──► buildMapModel(ctx, hist
 
 ## 7. 后续需求与实施顺序
 
-Phase 4 恢复为既定的界面工作。下列物理模型、编成和接口需求均在 Phase 4 之后实施；本节是设计目标，不表示现有引擎已经支持。
+Phase 4 已把航迹与裁定迁移到不确定度/协方差模型（见 4.5）。Phase 5 恢复为既定的界面工作。下列物理模型、编成和接口需求均在 Phase 5 之后实施；本节是设计目标，不表示现有引擎已经支持。
 
 | 阶段 | 内容 |
 |---|---|
-| Phase 4 | 机会弹窗（替代侧栏表单）、按单位列出合法动作并置灰说明原因（替代 JSON 命令台）、地图上点选航路点、分支树 UI、日志/因果链导出与可视化、时间轴预览（不提交地查看未来位置） |
-| Phase 4 之后 | 船体—模块—弹药编成与战役外编辑器；地球曲率、有限速信号和快子雷达数学模型；普通电磁雷达方程与轻量 EW；例行自动策略。具体实施顺序待后续规划。 |
+| Phase 4（已完成） | 测量与航迹模型迁移：删除航迹质量阶梯；存在概率 / 空间结构 + 协方差 / 分类三维航迹；作者测量偏移（95% 区域）；航迹外推；阵营 ROE 与武器目标类别；`CLASSIFY` 命令；捕获概率提示 |
+| Phase 5 | 机会弹窗（替代侧栏表单）、按单位列出合法动作并置灰说明原因（替代 JSON 命令台）、地图上点选航路点、分支树 UI、日志/因果链导出与可视化、时间轴预览（不提交地查看未来位置）、地图上的误差椭球 |
+| Phase 5 之后 | 船体—模块—弹药编成与战役外编辑器；地球曲率、有限速信号和快子雷达数学模型；普通电磁雷达方程与轻量 EW；例行自动策略。具体实施顺序待后续规划。 |
 | 设定集完成后 | 普通潜艇与亚空间潜航舰；亚空间机制按设定集确定。 |
 | 低优先级 | 无头会话 API 与 MCP 适配器，供 LLM 使用同一规则核心。 |
 
@@ -239,19 +285,19 @@ Phase 4 恢复为既定的界面工作。下列物理模型、编成和接口需
 - 每个传感器与被动信号源声明传播介质、路径与作用方式。电磁波按 `c` 传播；声学信号使用相应介质速度；快子波的速度由第 7.2.1 节的能量—动量关系推导。设备可用速度倍率作为中心能量的等价输入，但不得独立填写速度、频率和波长。远距误差必须计入孔径及信号时龄。
 - 被动接收计算发射时刻 `t_emit` 与到达时刻 `t_receive`，目标方位/位置基于**发射时的状态**。主动雷达还要计算发射→目标反射→接收的双程传播，并考虑收发端和目标在传播过程中的运动。探测机会在接收时刻出现，航迹标注观测时刻、接收时刻与时龄；数据链再增加传输延迟。
 - 波前/在途信号是事件队列中的因果对象，命令、传感器开关、运动和遮挡变化不能事后改写已发射波前。仍采用事件驱动求下一时刻，不为长距离每毫秒推进一次。远距求交需有数值容差、可解释失败原因及性能界限。
-- 以光年计的场景会暴露当前“双精度米坐标 + 整数毫秒时间”的精度与范围问题。实现前应确定分区/相对坐标与时间表示（例如局部参考系及更宽整数时间），验证跨光年传播、极近接触与长战役重放，不能仅把现有 `rangeM` 调大。
+- 以光年计的场景会暴露当前“双精度米坐标 + 整数毫秒时间”的精度与范围问题。实现前应确定分区/相对坐标与时间表示（例如局部参考系及更宽整数时间），验证跨光年传播、极近接触与长战役重放，不能仅把现有 `rangeM` 调大。7.2.1 的时间误差在微秒量级：误差可以只以协方差保存，但若要把回波到达时刻本身做成事件，整数毫秒的 `SimTime` 粒度不够。
 
 ### 7.2 雷达、目标特征与轻量电子战
 
-- 雷达不再以硬探测半径作为主判据。单站雷达按雷达方程求接收功率/信噪比：发射功率、增益、波长、目标该波段雷达截面积、系统损耗、噪声与干扰，距离衰减按往返路径计算（自由空间理想化为 `R⁻⁴`）；再由门限决定是否**存在探测机会**及质量上限。最低/最高工作距离、安全限制仍可作为设备约束。双站/非雷达传感器用各自方程，不能套单站公式。
+- 雷达不再以硬探测半径作为主判据。单站雷达按雷达方程求接收功率/信噪比：发射功率、增益、波长、目标该波段雷达截面积、系统损耗、噪声与干扰，距离衰减按往返路径计算（自由空间理想化为 `R⁻⁴`）；再由门限决定是否**存在探测机会**，并由 SNR 推出测量误差。最低/最高工作距离、安全限制仍可作为设备约束。双站/非雷达传感器用各自方程，不能套单站公式。
 - 电磁雷达与快子阵列都允许**可变相干孔径/基线**。大型平台可以把分布式子阵列按任务动态组合成不同的 `coherent_baseline`：较小基线用于宽视场搜索和快速刷新，较大基线用于精密跟踪与火控。必须把**相干基线**与**实际有效发射/接收面积**分开记录：基线主要决定角分辨能力和近/远场边界，实际有效面积、阵元效率与填充率决定发射/接收增益；稀疏长基线不得按填满整个基线直径的实心孔径计算增益。设备可定义多个离散阵列模式，或在合法范围内选择基线；模式切换可受阵元可用性、同步、功率和资源占用约束。
 - 目标特征按波段和观察条件提供参数，模块损坏/静默会改变辐射与反射特征。传感器有波段、搜索模式、波束/视场和工作状态。UAV“对海搜索雷达”的目标类别是舰船；若未来配置对空模式，应是明确的独立模式与参数，不能因目标落在距离内就默认探测。
 - EW 先做有限抽象：干扰器覆盖波段、作用区域/链路、强度或干扰系数，以及产生的探测/跟踪成功概率修正或合法结果区间。干扰要占用模块和功率资源，也可能暴露辐射源；记录每项修正的依据。概率是写作参考与裁定输入，默认不暗中随机掷骰；作者或预设策略给出最终结果，重放必须完全一致。
-- 区分目标存在、空间定位、分类与持续跟踪。空间定位只保留 `BEARING_ONLY` / `LOCALIZED` 这样的结构差异，具体好坏由概率分布/协方差连续表示；分类可信度独立保存。武器是否允许使用该目标由交战规则和识别条件判断，是否能命中由预测到武器到达时刻的目标概率区域与武器捕获/杀伤条件计算，不再设置 `WEAPON_SUPPORT` / `FIRE_CONTROL` 航迹等级。场景数据缺少雷达方程参数时，应标记为旧模型/待迁移，不能把 `rangeM × signature` 伪装成新规则。
+- 航迹结构已在 Phase 4 迁移（见 4.5）：目标存在、空间定位（`BEARING_ONLY` / `LOCALIZED` + 协方差）与分类相互独立，武器判据由交战规则、识别条件和概率区域决定。雷达方程接入后，探测机会的门限、存在概率和测量误差应由 SNR 推导，取代当前作者裁定的存在概率和固定的 `measurement` σ。场景数据缺少雷达方程参数时，应标记为旧模型/待迁移，不能把 `rangeM × signature` 伪装成新规则。
 
-### 7.2.1 快子波雷达：Phase 4 之后的数学模型
+### 7.2.1 快子波雷达：Phase 5 之后的数学模型
 
-以下是用于小说推演的工程规则，不声称描述现实中的快子，也不要求在 Phase 4 实现。第一版采用**未知目标散射相位**：发射波形、发射时间编码及快子色散关系已知，目标回波的绝对相位不能作为已知量。默认使用相干发射、相干编码与接收端色散补偿的**能量/SNR 接收模型**；单快子计数接收器只保留为未来扩展。探测概率是裁定依据，不暗中掷随机数，重放仍须确定。
+以下是用于小说推演的工程规则，不声称描述现实中的快子，也不要求在 Phase 5 之前实现。第一版采用**未知目标散射相位**：发射波形、发射时间编码及快子色散关系已知，目标回波的绝对相位不能作为已知量。默认使用相干发射、相干编码与接收端色散补偿的**能量/SNR 接收模型**；单快子计数接收器只保留为未来扩展。探测概率是裁定依据，不暗中掷随机数，重放仍须确定。
 
 **运动学与因果。** 全局只有一个质量尺度 `tachyon_mass_parameter_mu`，记为 $\mu>0$。在唯一的 `preferred_ftl_frame` 中采用
 
@@ -335,7 +381,7 @@ $$
 
 ### 7.4 自动策略与 LLM 接口
 
-- 策略配置属于单位/阵营预案，可按条件自动发出普通命令：航迹达到指定质量后经数据链共享、按刷新间隔重发、导弹接近时在合法窗口内分配火控/发射器和拦截弹数量。设置优先级、弹药保留量、威胁排序与交战授权；策略只能依据该阵营可见信息，调用同一 `check/dispatch`，不得直接修改真值。
+- 策略配置属于单位/阵营预案，可按条件自动发出普通命令：航迹的协方差或分类达到指定条件后经数据链共享、按刷新间隔重发、导弹接近时在合法窗口内分配火控/发射器和拦截弹数量。设置优先级、弹药保留量、威胁排序与交战授权；策略只能依据该阵营可见信息，调用同一 `check/dispatch`，不得直接修改真值。
 - 自动化按事件触发并设置去重/冷却，避免每帧发送与循环触发。策略动作、未执行原因和裁定参数进入命令日志；作者可暂停策略、覆盖单次动作、撤销或分支。命中/拦截等不确定结果仍遵守机会与合法区间，不自动伪造确定胜负。
 - 将来先提供版本化的无头会话 API：创建/载入想定、读取上帝或阵营视图、列出机会/可行动作、检查命令、派发命令、推进、裁定、撤销/分支、导出编年。MCP 服务器只把这些能力封装成工具，可由 LLM 客户端启动本地进程，或按需运行后台服务；它与现有浏览器前端并不冲突。需要约定会话所有权与并发写入、视角权限、资源/时间限额，以及外部调用的完整日志。Golden scenarios 继续用于回归测试，不充当 LLM 的运行接口。
 
@@ -351,5 +397,10 @@ $$
 - 弹群直线飞向发射时计算的前置点，匀速；整组共享一条路径。
 - 拦截窗口 = 弹群处于 [最小, 最大] 射程（且在射界内）的时间段，交战循环时间已包含飞行时间。
 - 当前探测距离 = 传感器标称距离 × 目标特征系数（线性），并检查目标类别与球体遮挡；尚无行星曲率、雷达方程、波段/EW 或有限速传感器传播。这一模型仅适合作为旧场景占位，不能据此校验远距物理。
+- 探测与持续跟踪没有传播延迟：`observedAt = receivedAt` = 事件时刻；只有数据链转发会产生两者之差。
+- 测量均值 = 真值 + 作者偏移；误差只以协方差表示。没有完整的跟踪滤波器：持续保持时每个事件时刻重新测量，多传感器只做信息形式融合，不累积历史观测。
+- 存在概率由作者裁定且保持不变；测量 σ 是传感器常数（纯方位 σθ 各向同性），不随 SNR 变化。
+- 航迹外推的未知机动是全想定统一的速度随机游走，尚不按分类区分目标机动能力。
+- 捕获概率提示假设瞄准点位于航迹外推均值、导弹自身无制导误差，捕获区按球体处理。
 - 拦截弹在下达 `ENGAGE` 时即扣除（承诺发射量），以保证库存守恒可审计。
 - `TIME_ADVANCED`（时间在哪里停下）只在上帝视角可见：停顿时刻本身会暴露“某方在此刻有机会”。
