@@ -166,3 +166,15 @@ dd.truth { color: var(--warn); }
 .action label { display: flex; gap: 4px; align-items: center; color: var(--muted); }
 .action .bad { margin-top: 2px; }
 .waypoints { list-style: none; padding: 0; margin: 6px 0; }
+
+/* --- Phase 5: branches ----------------------------------------------------- */
+.branch-tree { list-style: none; margin: 0; padding: 0; }
+.branch-row { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; background: none; border: 1px solid transparent; margin: 1px 0; }
+.branch-row.on { background: #1a3050; border-color: #2c67b3; }
+.branch-name { font-weight: 600; }
+.history { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
+.hist { padding: 4px 2px; border-bottom: 1px solid #172238; }
+.hist .t { color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; min-width: 6.5em; }
+.hist.undone { opacity: 0.45; }
+.hist.head { background: #13243d; }
+.hist-actions { gap: 12px; }

@@ -8,6 +8,7 @@ import { Segmented, Tree, useClock, useStore } from './common.js';
 import { OpportunityDialog } from './panels/Opportunity.js';
 import { DetailsPanel, EntityList } from './panels/Details.js';
 import { ActionsPanel } from './panels/Actions.js';
+import { BranchesPanel } from './panels/Branches.js';
 import { LogPanel } from './panels/Log.js';
 import { ConsolePanel } from './panels/Console.js';
 
@@ -56,6 +57,7 @@ export function App({ store }: { store: AppStore }) {
               </>
             )}
             {store.tab === 'log' && <LogPanel store={store} />}
+            {store.tab === 'branches' && <BranchesPanel store={store} />}
             {store.tab === 'advanced' && <ConsolePanel store={store} />}
           </div>
         </aside>
@@ -141,7 +143,16 @@ function TopBar({ store }: { store: AppStore }) {
         </label>
       )}
       <div className="spacer" />
-      <span className="branch">分支：{store.session.branch.name}</span>
+      <label className="branch">
+        分支
+        <select aria-label="当前分支" value={store.session.branch.id} onChange={(e) => store.switchBranch(e.target.value)}>
+          {store.session.branches().map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      </label>
       <button onClick={download} title="下载会话（命令树 + 分支）">保存</button>
       <button onClick={() => fileRef.current?.click()} title="载入会话文件">载入</button>
       <input

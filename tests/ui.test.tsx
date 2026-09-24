@@ -224,4 +224,34 @@ describe('Phase 3 interface', () => {
     const again = screen.getByText(/发射 垂直发射系统 · ASM-X/).closest('.action') as HTMLElement;
     expect((within(again).getByRole('button', { name: '执行' }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  test('branches panel: fork from a past node, switch branches, go back and redo', () => {
+    const store = new AppStore();
+    render(<App store={store} />);
+    act(() => void store.dispatch({ type: 'NOTE', text: 'A' }));
+    act(() => void store.dispatch({ type: 'NOTE', text: 'B' }));
+    fireEvent.click(screen.getByRole('tab', { name: '分支' }));
+    const history = () => screen.getByRole('heading', { name: /命令历史/ }).closest('section')!;
+    const rowOf = (text: string) => within(history()).getByText(text).closest('li') as HTMLElement;
+
+    // Go back to "A": B becomes undone (redo-able), not lost.
+    fireEvent.click(within(rowOf('备注：A')).getByRole('button', { name: '回到此处' }));
+    expect(store.session.commands()).toHaveLength(1);
+    expect(rowOf('备注：B').className).toContain('undone');
+    act(() => store.redo());
+    expect(store.session.commands()).toHaveLength(2);
+
+    // Fork at "A" under a new name; the new branch becomes current.
+    fireEvent.click(within(rowOf('备注：A')).getByRole('button', { name: '从此处分支…' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '新分支名称' }), { target: { value: '另一种结局' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建分支' }));
+    expect(store.session.branch.name).toBe('另一种结局');
+    expect(store.session.commands()).toHaveLength(1);
+
+    // Switch back through the branch tree and through the top-bar selector.
+    fireEvent.click(screen.getByRole('button', { name: /^main/ }));
+    expect(store.session.branch.id).toBe('main');
+    fireEvent.change(screen.getByRole('combobox', { name: '当前分支' }), { target: { value: store.session.branches()[1]!.id } });
+    expect(store.session.branch.name).toBe('另一种结局');
+  });
 });

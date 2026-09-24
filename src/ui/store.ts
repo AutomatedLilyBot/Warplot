@@ -228,6 +228,29 @@ export class AppStore {
   undo(): void {
     if (this.session.undo()) this.changed();
   }
+
+  /** Undo until `nodeId` (null = scenario start) is the head; it must be on the current path. */
+  undoTo(nodeId: string | null): void {
+    const onPath = nodeId === null || this.session.path(this.session.branch.head).some((n) => n.id === nodeId);
+    if (!onPath) return;
+    let moved = false;
+    while (this.session.branch.head !== nodeId && this.session.undo()) moved = true;
+    if (moved) this.changed();
+  }
+
+  switchBranch(id: string): void {
+    if (id === this.session.branch.id) return;
+    this.session.switchBranch(id);
+    this.routeDraft = null;
+    this.changed();
+  }
+
+  /** New branch whose head is `nodeId` (null = scenario start); switches to it. */
+  forkAt(name: string, nodeId: string | null): void {
+    this.session.fork(name.trim() || 'branch', nodeId);
+    this.routeDraft = null;
+    this.changed();
+  }
   redo(): void {
     if (this.session.redo()) this.changed();
   }
