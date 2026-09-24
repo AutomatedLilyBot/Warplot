@@ -38,6 +38,8 @@ vi.mock('../src/renderer/TacticalMap.js', () => ({
     focus() {}
     fit() { this.fits++; }
     setPlanePicking(anchor: number[] | null) { this.planeAnchor = anchor; }
+    showUncertainty = true;
+    setShowUncertainty(on: boolean) { this.showUncertainty = on; }
   },
 }));
 

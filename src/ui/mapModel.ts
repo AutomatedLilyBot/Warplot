@@ -10,6 +10,9 @@ import type { Ctx } from '../rules/world.js';
 import { groupPosition, orientationAt, trackCovarianceAt, trackPositionAt } from '../rules/world.js';
 import { RAD } from '../core/math/vec3.js';
 import { ellipsoid95, fmtM } from '../rules/tracks.js';
+import { symEigen } from '../core/math/mat3.js';
+import { CHI2_95 } from '../core/math/stats.js';
+import { scale } from '../core/math/vec3.js';
 import { positionAt } from '../rules/kinematics.js';
 import type { MissileGroupState, MotionPlan, Track, WorldState } from '../state/types.js';
 import { projectSideView } from '../state/view.js';
@@ -32,6 +35,10 @@ export interface MapEntity {
   forward?: Vec3;
   /** Bearing-only tracks: ray from the observer. */
   bearing?: { origin: Vec3; dir: Vec3 };
+  /** Bearing-only tracks: 95 % half-angle (rad) of the bearing, 1.96 σθ. */
+  bearingSpread?: number;
+  /** Localized tracks: 95 % joint ellipsoid at the displayed time — centre and semi-axis vectors (m). */
+  ellipsoid?: { center: Vec3; axes: [Vec3, Vec3, Vec3] };
   trail?: Vec3[];
   route?: Vec3[];
   flightLine?: [Vec3, Vec3];
@@ -118,8 +125,16 @@ function trackEntity(ctx: Ctx, tr: PictureTrack, now: number, tone: string, extr
     label: `${extra}${num}`,
     sublabel: `${trackSublabel(ctx, tr, now)}${age > 0 ? ` · ${age}s` : ''}`,
     position: pos,
-    ...(tr.spatial.kind === 'BEARING_ONLY' ? { bearing: { origin: tr.spatial.origin, dir: tr.spatial.direction } } : {}),
+    ...(tr.spatial.kind === 'BEARING_ONLY'
+      ? { bearing: { origin: tr.spatial.origin, dir: tr.spatial.direction }, bearingSpread: 1.96 * tr.spatial.angleSigmaRad }
+      : { ellipsoid: { center: pos!, axes: ellipsoidAxes(trackCovarianceAt(ctx, tr, now)!) } }),
   };
+}
+
+/** Semi-axis vectors of the 95 % joint ellipsoid (eigenvectors scaled by √(λ·χ²₃,₀.₉₅)). */
+export function ellipsoidAxes(cov: Parameters<typeof symEigen>[0]): [Vec3, Vec3, Vec3] {
+  const { values, vectors } = symEigen(cov);
+  return vectors.map((v, i) => scale(v, Math.sqrt(Math.max(values[i]!, 0) * CHI2_95[3]))) as [Vec3, Vec3, Vec3];
 }
 
 /** Freshest copy of each track across a set of platforms. */

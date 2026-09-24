@@ -69,6 +69,8 @@ export class AppStore {
   cameraMode: CameraMode = 'perspective';
   planeId = '';
   godTracks = false;
+  /** Draw 95 % error ellipsoids and bearing spreads on the map. */
+  showUncertainty = true;
   flash: Flash | null = null;
   /** Sidebar tab (a per-viewer convenience, remembered in localStorage). */
   tab: SidebarTab = readTab();
@@ -337,6 +339,11 @@ export class AppStore {
 
   setPlane(id: string): void {
     this.planeId = id;
+    this.changed(false);
+  }
+
+  setShowUncertainty(on: boolean): void {
+    this.showUncertainty = on;
     this.changed(false);
   }
 

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { Session } from '../src/events/session.js';
 import { buildMapModel, unitTrail } from '../src/ui/mapModel.js';
+import { length } from '../src/core/math/vec3.js';
+import { ellipsoid95 } from '../src/rules/tracks.js';
+import { trackCovarianceAt } from '../src/rules/world.js';
 import { trackNumber, groupLabel } from '../src/ui/labels.js';
 import { demoCtx, ddg, detectAll, miniCtx, must, pending } from './helpers.js';
 import type { Ctx } from '../src/rules/world.js';
@@ -131,5 +134,22 @@ describe('map model', () => {
     expect(timelineMarks(ctx, s.state, 'blue', t0, t0 + 3_600_000).map((m) => m.kind)).toEqual(['route']);
     expect(timelineMarks(ctx, s.state, 'red', t0, t0 + 3_600_000).map((m) => m.kind)).toEqual(['arrival']);
     expect(timelineMarks(ctx, s.state, 'god', t0, t0 + 1000)).toEqual([]);
+  });
+
+  test('localized tracks carry their 95 % ellipsoid, growing in a preview; bearing tracks a spread', () => {
+    const ctx = miniCtx([ddg('b1', 'blue', [0, 0, 0], { sensorsOn: ['mfr', 'esm'] }), ddg('r1', 'red', [100_000, 0, 0], { sensorsOn: ['mfr'] })]);
+    const s = new Session(ctx);
+    must(s, { type: 'ADVANCE', until: 1 });
+    detectAll(s);
+    must(s, { type: 'SET_SENSOR', unitId: 'b1', sensorId: 'mfr', on: false });
+    const tracks = Object.values(s.state.knowledge['b1']!);
+    const loc = tracks.find((t) => t.spatial.kind === 'LOCALIZED')!;
+    const now = buildMapModel(ctx, history(s), 'blue').entities.find((e) => e.key === `track:${loc.id}`)!;
+    const want = ellipsoid95(trackCovarianceAt(ctx, loc, s.state.time)!);
+    expect(now.ellipsoid!.axes.map(length)).toEqual(want.map((x) => expect.closeTo(x, 6)));
+    const later = buildMapModel(ctx, history(s), 'blue', { at: s.state.time + 600_000 }).entities.find((e) => e.key === `track:${loc.id}`)!;
+    expect(length(later.ellipsoid!.axes[0])).toBeGreaterThan(length(now.ellipsoid!.axes[0]));
+    const brg = buildMapModel(ctx, history(s), 'blue').entities.find((e) => e.bearing)!;
+    expect(brg.bearingSpread).toBeCloseTo(1.96 * (Math.PI / 180), 9);
   });
 });

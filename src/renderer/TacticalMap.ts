@@ -57,6 +57,7 @@ export class TacticalMap {
   private fitted = false;
   /** While set, clicks pick a point on the plane through this world point (parallel to the reference plane). */
   private pickPlaneAt: Vec3 | null = null;
+  private showUncertainty = true;
 
   constructor(
     private container: HTMLElement,
@@ -174,6 +175,13 @@ export class TacticalMap {
   setPlanePicking(anchor: Vec3 | null): void {
     this.pickPlaneAt = anchor;
     this.renderer.domElement.style.cursor = anchor ? 'crosshair' : '';
+  }
+
+  /** Draw 95 % error ellipsoids / bearing spreads for tracks. */
+  setShowUncertainty(on: boolean): void {
+    if (on === this.showUncertainty) return;
+    this.showUncertainty = on;
+    this.rebuild();
   }
 
   /** Reset the camera to show everything. */
@@ -350,6 +358,33 @@ export class TacticalMap {
     if (m.draftRoute && m.draftRoute.length > 1) this.buildDraftRoute(m.draftRoute);
   }
 
+  /** Three principal-plane ellipses of a 95 % ellipsoid (reads in every camera mode). */
+  private buildEllipsoid(center: Vec3, axes: [Vec3, Vec3, Vec3], color: string): void {
+    for (const [a, b] of [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ] as const) {
+      const pts: THREE.Vector3[] = [];
+      for (let k = 0; k < 64; k++) {
+        const th = (k / 64) * Math.PI * 2;
+        pts.push(this.r(add(center, add(scale(axes[a], Math.cos(th)), scale(axes[b], Math.sin(th))))));
+      }
+      const loop = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 }));
+      this.content.add(loop);
+    }
+  }
+
+  /** Two faint rays at ±spread around a bearing line, rotated about the reference-plane normal. */
+  private buildBearingSpread(origin: Vec3, dir: Vec3, spread: number, color: string): void {
+    const n = v3(this.frame.normal);
+    for (const sgn of [-1, 1]) {
+      const d = v3(dir).applyQuaternion(new THREE.Quaternion().setFromAxisAngle(n, sgn * spread));
+      const far = add(origin, scale([d.x, d.y, d.z], this.extentKm * 1000 * 1.2));
+      this.content.add(this.line([origin, far], color, { dashed: true, opacity: 0.3 }));
+    }
+  }
+
   private buildDraftRoute(pts: Vec3[]): void {
     this.content.add(this.line(pts, '#ffffff', { dashed: true, opacity: 0.95 }));
     pts.slice(1).forEach((p, i) => {
@@ -407,7 +442,9 @@ export class TacticalMap {
     if (e.bearing) {
       const far = add(e.bearing.origin, scale(e.bearing.dir, this.extentKm * 1000 * 1.2));
       this.content.add(this.line([e.bearing.origin, far], color, { dashed: true, opacity: 0.7 }));
+      if (this.showUncertainty && e.bearingSpread) this.buildBearingSpread(e.bearing.origin, e.bearing.dir, e.bearingSpread, color);
     }
+    if (this.showUncertainty && e.ellipsoid) this.buildEllipsoid(e.ellipsoid.center, e.ellipsoid.axes, color);
 
     const anchor = e.position ?? e.bearing?.origin;
     if (!anchor) return;

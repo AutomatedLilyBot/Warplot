@@ -130,6 +130,10 @@ function TopBar({ store }: { store: AppStore }) {
           </select>
         </label>
       )}
+      <label className="check">
+        <input type="checkbox" checked={store.showUncertainty} onChange={(e) => store.setShowUncertainty(e.target.checked)} />
+        误差椭球
+      </label>
       {store.view === 'god' && (
         <label className="check">
           <input type="checkbox" checked={store.godTracks} onChange={(e) => store.setGodTracks(e.target.checked)} />
@@ -222,6 +226,9 @@ function MapCanvas({ store, tones }: { store: AppStore; tones: Record<string, st
   useEffect(() => {
     mapRef.current?.setCameraMode(store.cameraMode);
   }, [store.cameraMode, tones]);
+  useEffect(() => {
+    mapRef.current?.setShowUncertainty(store.showUncertainty);
+  }, [store.showUncertainty, tones]);
   useEffect(() => {
     mapRef.current?.setModel(store.mapModel());
     mapRef.current?.setSelected(store.selected);
