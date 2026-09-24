@@ -151,10 +151,6 @@ export class Session {
     return Object.values(this.data.branches);
   }
 
-  node(id: string): CommandNode | undefined {
-    return this.data.nodes[id];
-  }
-
   /** Undone nodes of the current branch in replay order (next redo first). */
   redoNodes(): CommandNode[] {
     return [...this.branch.redo].reverse().map((id) => this.data.nodes[id]!);
