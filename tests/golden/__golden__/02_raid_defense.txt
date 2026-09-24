@@ -8,37 +8,38 @@ scenario: raid.json
 [09:00:00] E2        DETECTION_OPPORTUNITY  09:00:00 Blue-DDG-01 有可能探测到 Red-DDG-01（多功能雷达）
 [09:00:00] E3        DETECTION_OPPORTUNITY  09:00:00 Red-DDG-01 有可能探测到 Blue-DDG-01（多功能雷达）
 [09:00:00] E4        TIME_ADVANCED          时间推进 09:00:00 → 09:00:00（出现待裁定机会）
-> RESOLVE {"opportunityId":"blue-OPP1","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL","classification":"驱逐舰"}}
-[09:00:00] E5        DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL） = Red-DDG-01
+> RESOLVE {"opportunityId":"blue-OPP1","decision":{"kind":"detection","detected":true,"classification":{"category":"ship","label":"驱逐舰","identity":"hostile","confidence":0.9}}}
+[09:00:00] E5        DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（定位 95% 半轴 146 m/146 m/83.9 m；驱逐舰 / ship · 敌对 · 置信度 0.9） = Red-DDG-01
             ← E2
             需要: 多功能雷达 开机且几何可探测 (E2)
             需要: 作者裁定: 探测成功
-            产生: blue-ddg-01 航迹 blue-T1 (FIRE_CONTROL)
-> RESOLVE {"opportunityId":"red-OPP1","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL","classification":"驱逐舰"}}
-[09:00:00] E6        DETECTION              Red-DDG-01 多功能雷达 建立航迹 red-T1（FIRE_CONTROL） = Blue-DDG-01
+            产生: blue-ddg-01 航迹 blue-T1 (LOCALIZED)
+> RESOLVE {"opportunityId":"red-OPP1","decision":{"kind":"detection","detected":true,"classification":{"category":"ship","label":"驱逐舰","identity":"hostile","confidence":0.9}}}
+[09:00:00] E6        DETECTION              Red-DDG-01 多功能雷达 建立航迹 red-T1（定位 95% 半轴 146 m/146 m/83.9 m；驱逐舰 / ship · 敌对 · 置信度 0.9） = Blue-DDG-01
             ← E3
             需要: 多功能雷达 开机且几何可探测 (E3)
             需要: 作者裁定: 探测成功
-            产生: red-ddg-01 航迹 red-T1 (FIRE_CONTROL)
+            产生: red-ddg-01 航迹 red-T1 (LOCALIZED)
 
 ## 红方齐射
 > LAUNCH {"unitId":"red-ddg-01","mountId":"vls","weaponId":"asm-x","count":8,"trackId":"red-T1"}
 [09:00:00] E7        LAUNCH                 Red-DDG-01 垂直发射系统 向航迹 red-T1 发射 8 × ASM-X 反舰导弹，09:05:44.828 到达
             ← E6
             需要: 航迹来源 (E6)
-            需要: 航迹质量 FIRE_CONTROL ≥ WEAPON_SUPPORT
+            需要: 航迹 定位 95% 半轴 146 m/146 m/83.9 m，数据时刻 09:00:00
             需要: 库存 24 → 16
             需要: vls 可用
             产生: 弹群 red-MG1
+            产生: （提示）到达时目标落入导引头捕获区 8.00 km 的概率 ≈ 99.9%
 > ADVANCE {}
 [09:04:27.242] E8        DETECTION_OPPORTUNITY  09:04:27.242 Blue-DDG-01 有可能探测到 red-MG1（多功能雷达）
 [09:04:27.242] E9        TIME_ADVANCED          时间推进 09:00:00 → 09:04:27.242（出现待裁定机会）
-> RESOLVE {"opportunityId":"blue-OPP2","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL","classification":"反舰导弹群"}}
-[09:04:27.242] E10       DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T2（FIRE_CONTROL） = red-MG1
+> RESOLVE {"opportunityId":"blue-OPP2","decision":{"kind":"detection","detected":true,"classification":{"category":"missile","label":"反舰导弹群","identity":"hostile","confidence":0.95}}}
+[09:04:27.242] E10       DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T2（定位 95% 半轴 83.9 m/32.9 m/32.9 m；反舰导弹群 / missile · 敌对 · 置信度 0.95） = red-MG1
             ← E8
             需要: 多功能雷达 开机且几何可探测 (E8)
             需要: 作者裁定: 探测成功
-            产生: blue-ddg-01 航迹 blue-T2 (FIRE_CONTROL)
+            产生: blue-ddg-01 航迹 blue-T2 (LOCALIZED)
 
 ## 第一层：舰空导弹
 > ENGAGE {"unitId":"blue-ddg-01","mountId":"vls","weaponId":"sam-std","trackId":"blue-T2"}
@@ -136,8 +137,8 @@ scenario: raid.json
 
 ### 蓝方视角事件
 [09:00:00] blue-E1   SCENARIO_START         想定开始: 反舰饱和攻击防御（演示）
-[09:00:00] blue-E2   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL）
-[09:04:27.242] blue-E3   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T2（FIRE_CONTROL）
+[09:00:00] blue-E2   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（定位 95% 半轴 146 m/146 m/83.9 m；驱逐舰 / ship · 敌对 · 置信度 0.9）
+[09:04:27.242] blue-E3   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T2（定位 95% 半轴 83.9 m/32.9 m/32.9 m；反舰导弹群 / missile · 敌对 · 置信度 0.95）
 [09:04:27.242] blue-E4   ENGAGE                 Blue-DDG-01 以 SAM-STD 舰空导弹 拦截航迹 blue-T2：窗口 09:04:27.242–09:05:34.484，消耗 16 发
 [09:04:27.242] blue-E5   CLAIM_ADDED            右舷对敌 占用 hull_attitude（优先级 5）
 [09:04:27.242] blue-E6   ENGAGE                 Blue-DDG-01 以 近防炮点射 拦截航迹 blue-T2：窗口 09:05:32.760–09:05:43.794，消耗 3 发
@@ -150,7 +151,7 @@ scenario: raid.json
 
 ### 红方视角事件
 [09:00:00] red-E1    SCENARIO_START         想定开始: 反舰饱和攻击防御（演示）
-[09:00:00] red-E2    DETECTION              Red-DDG-01 多功能雷达 建立航迹 red-T1（FIRE_CONTROL）
+[09:00:00] red-E2    DETECTION              Red-DDG-01 多功能雷达 建立航迹 red-T1（定位 95% 半轴 146 m/146 m/83.9 m；驱逐舰 / ship · 敌对 · 置信度 0.9）
 [09:00:00] red-E3    LAUNCH                 Red-DDG-01 垂直发射系统 向航迹 red-T1 发射 8 × ASM-X 反舰导弹，09:05:44.828 到达
 [09:05:44.828] red-E4    IMPACT                 red-MG1 到达目标区，战果需另行确认
 [09:05:44.828] red-E5    GROUP_EXPENDED         red-MG1 结束（已到达目标）

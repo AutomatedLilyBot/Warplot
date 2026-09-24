@@ -17,7 +17,7 @@ function raid(blueHeading: number) {
   expect(opp.kind).toBe('detection');
   if (opp.kind !== 'detection') throw new Error();
   expect(opp.observerId).toBe('b1');
-  must(s, { type: 'RESOLVE', opportunityId: opp.id, decision: { kind: 'detection', detected: true, quality: 'FIRE_CONTROL' } });
+  must(s, { type: 'RESOLVE', opportunityId: opp.id, decision: { kind: 'detection', detected: true, classification: { category: 'missile', identity: 'hostile', confidence: 1 } } });
   const missileTrack = Object.values(s.state.knowledge['b1']!).find((t) => s.state.truth.trackTargets[t.id] === 'red-MG1')!.id;
   return { ctx, s, missileTrack };
 }

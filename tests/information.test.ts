@@ -60,7 +60,9 @@ describe('knowledge propagation', () => {
     must(s, { type: 'ADVANCE', until: msg.deliverAt, stopAtNotable: true });
     expect(s.state.time).toBe(msg.deliverAt);
     const tr = s.state.knowledge['b1']!['blue-T1']!;
-    expect(tr.quality).toBe('WEAPON_SUPPORT');
+    expect(tr.spatial.kind).toBe('LOCALIZED');
+    expect(tr.receivedAt).toBe(msg.deliverAt);
+    expect(tr.observedAt).toBeLessThan(tr.receivedAt);
     expect(tr.holds).toEqual({});
     const r = must(s, launch);
 
@@ -88,8 +90,8 @@ describe('knowledge propagation', () => {
     }
     const sender = s.state.knowledge['bu']!['blue-T1']!;
     const receiver = s.state.knowledge['b1']!['blue-T1']!;
-    expect(sender.lastUpdate).toBe(60_000);
-    expect(receiver.lastUpdate).toBeLessThan(2000);
+    expect(sender.observedAt).toBe(60_000);
+    expect(receiver.observedAt).toBeLessThan(2000);
   });
 
   test('cannot transmit on a link the platform is not a member of', () => {

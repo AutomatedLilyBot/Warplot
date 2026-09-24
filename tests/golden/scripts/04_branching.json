@@ -32,8 +32,7 @@
     "opportunityId": "blue-OPP1",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -43,8 +42,7 @@
     "opportunityId": "blue-OPP2",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -54,8 +52,7 @@
     "opportunityId": "blue-OPP3",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -65,8 +62,7 @@
     "opportunityId": "blue-OPP4",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -76,8 +72,7 @@
     "opportunityId": "red-OPP1",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -87,8 +82,7 @@
     "opportunityId": "red-OPP2",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -98,8 +92,7 @@
     "opportunityId": "red-OPP3",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -109,8 +102,7 @@
     "opportunityId": "red-OPP4",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -126,9 +118,6 @@
       "red-T4"
      ]
     },
-    "quality": {
-     "blue-ddg-01.blue-T1": "BEARING_ONLY"
-    },
     "sideExcludes": {
      "blue": [
       "red-ddg-01",
@@ -140,6 +129,9 @@
       "Blue-DDG-01",
       "blue-uav-01"
      ]
+    },
+    "track": {
+     "blue-ddg-01.blue-T1": "BEARING_ONLY"
     }
    }
   },
@@ -169,8 +161,7 @@
     "opportunityId": "blue-OPP5",
     "decision": {
      "kind": "detection",
-     "detected": true,
-     "quality": "BEARING_ONLY"
+     "detected": true
     }
    }
   },
@@ -189,7 +180,11 @@
   {
    "expect": {
     "knows": {
-     "blue-ddg-01": ["blue-T1", "blue-T2", "blue-T5"],
+     "blue-ddg-01": [
+      "blue-T1",
+      "blue-T2",
+      "blue-T5"
+     ],
      "blue-uav-01": [],
      "red-uav-03": []
     }

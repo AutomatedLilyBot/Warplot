@@ -6,7 +6,7 @@ import { type Vec3, distance, normalize, sub } from '../core/math/vec3.js';
 import { type Explanation, check, info, allOk } from '../core/explain.js';
 import { type SimTime, formatClock, parseClock } from '../core/time.js';
 import type { Command } from '../events/types.js';
-import { type MountDef, type WeaponDef, qualityAtLeast } from '../state/defs.js';
+import type { MountDef, WeaponDef } from '../state/defs.js';
 import type { Track, UnitState, WorldState } from '../state/types.js';
 import {
   type Ctx,
@@ -15,6 +15,7 @@ import {
   groupPosition,
   leadAimPoint,
   mountDef,
+  trackCovarianceAt,
   trackOf,
   weaponDef,
 } from './world.js';
@@ -23,6 +24,7 @@ import { arcCheck } from './arcs.js';
 import { capacityFree, checkExclusiveFree } from './resources.js';
 import { earliestAligned } from './attitude.js';
 import { firstWindow, rangeStep } from './search.js';
+import { describeSpatial, ellipsoid95, fmtM, probWithin } from './tracks.js';
 
 const clock = (ctx: Ctx, t: SimTime) => formatClock(t, parseClock(ctx.scenario.epoch));
 
@@ -81,14 +83,38 @@ function commonChecks(
     return { checks, unit, mount, weapon: wdef, earliest: eta ?? earliest };
   }
   checks.push(
-    check(`航迹质量 ${track.quality} ≥ 需要 ${wdef.requiredQuality}`, qualityAtLeast(track.quality, wdef.requiredQuality), {
-      refs: track.provenance,
-    }),
+    check(`航迹为定位航迹（${describeSpatial(track.spatial)}）`, track.spatial.kind === 'LOCALIZED', { refs: track.provenance }),
   );
-  const ageS = (s.time - track.lastUpdate) / 1000;
-  checks.push(check(`航迹时龄 ${ageS.toFixed(1)} s ≤ ${wdef.maxTrackAgeS} s`, ageS <= wdef.maxTrackAgeS, { refs: track.provenance }));
-  checks.push(check('航迹具有位置估计（非纯方位）', track.estimate.kind === 'position'));
+  checks.push(...identificationChecks(ctx, unit.side, wdef, track));
   return { checks, unit, mount, weapon: wdef, track, earliest };
+}
+
+/** Rules of engagement (side) and target identification (weapon). Uses only the side's own classification. */
+function identificationChecks(ctx: Ctx, side: string, w: WeaponDef, track: Track): Explanation[] {
+  const out: Explanation[] = [];
+  const c = track.classification;
+  const roe = ctx.scenario.roe?.[side];
+  if (roe?.weaponsRelease === 'tight') {
+    const min = roe.minHostileConfidence ?? 0;
+    out.push(
+      check(
+        `交战规则 tight：目标须识别为敌对且置信度 ≥ ${min}（当前 ${c ? `${c.identity}，${c.confidence}` : '未分类'}）`,
+        !!c && c.identity === 'hostile' && c.confidence >= min,
+        { refs: track.provenance },
+      ),
+    );
+  }
+  if (w.targetCategories) {
+    const min = w.minClassificationConfidence ?? 0;
+    out.push(
+      check(
+        `${w.name} 只用于 ${w.targetCategories.join('/')}，分类置信度 ≥ ${min}（当前 ${c?.category ? `${c.category}，${c.confidence}` : '类别未定'}）`,
+        !!c?.category && w.targetCategories.includes(c.category) && c.confidence >= min,
+        { refs: track.provenance },
+      ),
+    );
+  }
+  return out;
 }
 
 export interface LaunchPlan {
@@ -98,6 +124,8 @@ export interface LaunchPlan {
   arrivalTime: SimTime;
   busyUntil: SimTime;
   pointing?: { az: number; el: number };
+  /** Advisory: probability the target lies inside the seeker basket at arrival. */
+  acquisition: { p: number; basketM: number };
 }
 
 export function checkLaunch(
@@ -108,7 +136,7 @@ export function checkLaunch(
   const c = commonChecks(ctx, s, cmd.unitId, cmd.mountId, cmd.weaponId, cmd.trackId, cmd.count, ['anti_ship', 'gun']);
   const { checks, unit, mount, weapon, track } = c;
   checks.push(check('发射数量须为正整数', Number.isSafeInteger(cmd.count) && cmd.count > 0));
-  if (!unit || !mount || !weapon || !track || track.estimate.kind !== 'position')
+  if (!unit || !mount || !weapon || !track || track.spatial.kind !== 'LOCALIZED')
     return { ok: false, checks, earliest: c.earliest };
 
   const here = positionAt(unit.motion, s.time);
@@ -157,6 +185,8 @@ export function checkLaunch(
       children: [info(`距离 ${(distance(origin, lead2.aim) / 1000).toFixed(2)} km ÷ ${weapon.speedMps} m/s`)],
     }),
   );
+  const hint = acquisitionHint(ctx, track, weapon, arrivalTime);
+  checks.push(hint.explanation);
   return {
     ok,
     checks,
@@ -167,9 +197,36 @@ export function checkLaunch(
       arrivalTime,
       busyUntil: launchTime + Math.ceil(cmd.count * mount.launchIntervalS * 1000),
       pointing: mount.kind === 'turret' ? arc.body : undefined,
+      acquisition: hint.acquisition,
     },
   };
 }
+
+/**
+ * Advisory only: the track's covariance extrapolated to the arrival time and the
+ * chance that the target lies inside the seeker basket around the aim point.
+ * The weapon's own guidance error is not modelled yet.
+ */
+function acquisitionHint(
+  ctx: Ctx,
+  track: Track,
+  weapon: WeaponDef,
+  arrivalTime: SimTime,
+): { explanation: Explanation; acquisition: { p: number; basketM: number } } {
+  const cov = trackCovarianceAt(ctx, track, arrivalTime)!;
+  const basket = weapon.seekerBasketM ?? 500;
+  const p = probWithin(cov, basket);
+  const dtS = (arrivalTime - track.observedAt) / 1000;
+  const explanation = info(`（提示）到达时目标落入导引头捕获区 ${fmtM(basket)} 的概率 ≈ ${formatP(p)}`, {
+    children: [
+      info(`航迹数据时刻起外推 ${dtS.toFixed(1)} s，95% 椭球半轴 ${ellipsoid95(cov).map(fmtM).join(' / ')}`),
+      info('仅作写作与决策参考，不影响合法性；导弹自身制导误差尚未计入'),
+    ],
+  });
+  return { explanation, acquisition: { p, basketM: basket } };
+}
+
+export const formatP = (p: number): string => (p > 0.9995 ? '>99.9%' : p < 0.0005 ? '<0.1%' : `${(p * 100).toFixed(1)}%`);
 
 export interface EngagementPlan {
   window: { start: SimTime; end: SimTime };
@@ -200,6 +257,8 @@ export function checkEngage(
   const group = truthId ? s.groups[truthId] : undefined;
   const interceptable = !!group && groupAirborne(group, s.time);
   checks.push(check('目标为飞行中的弹群（裁判层判定）', interceptable));
+  const holders = Object.keys(track.holds);
+  checks.push(check(holders.length ? `本平台传感器持续跟踪中（${holders.join(', ')}）` : '航迹须由本平台传感器持续跟踪（数据链转发的航迹不能引导拦截）', holders.length > 0, { refs: track.provenance }));
 
   const fcPer = weapon.fireControlChannels ?? 0;
   let channels = 1;
@@ -282,6 +341,8 @@ export function checkEngage(
     ],
   });
   checks.push(check(`至少可完成一次交战`, E >= 1, { children: [explanation] }));
+  const covStart = trackCovarianceAt(ctx, track, w.start);
+  if (covStart) checks.push(info(`（提示）窗口开始时航迹 95% 椭球半轴 ${ellipsoid95(covStart).map(fmtM).join(' / ')}`));
   const ok = allOk(checks);
   return {
     ok,

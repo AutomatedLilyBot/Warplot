@@ -6,9 +6,10 @@
     { "note": "开局：双方各有一个探测机会" },
     { "do": { "type": "ADVANCE" } },
     { "expect": { "time": "08:00:00", "pending": ["blue-OPP1", "red-OPP1"] } },
-    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "WEAPON_SUPPORT" } } },
-    { "do": { "type": "RESOLVE", "opportunityId": "red-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "BEARING_ONLY" } } },
-    { "expect": { "knows": { "blue-uav-01": ["blue-T1"], "blue-ddg-01": [], "red-ddg-01": ["red-T1"] }, "sideExcludes": { "blue": ["red-ddg-01", "Red-DDG-01"], "red": ["blue-uav-01", "Blue-UAV-01"] } } },
+    { "reject": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "offset": { "radialM": 500 } } }, "because": "95% 置信区域" },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "offset": { "radialM": 150, "crossM": -120 }, "classification": { "category": "ship", "label": "驱逐舰", "identity": "hostile", "confidence": 0.8 } } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "red-OPP1", "decision": { "kind": "detection", "detected": true } } },
+    { "expect": { "knows": { "blue-uav-01": ["blue-T1"], "blue-ddg-01": [], "red-ddg-01": ["red-T1"] }, "track": { "red-ddg-01.red-T1": "BEARING_ONLY" }, "sideExcludes": { "blue": ["red-ddg-01", "Red-DDG-01"], "red": ["blue-uav-01", "Blue-UAV-01"] } } },
 
     { "note": "驱逐舰还没有航迹：发射非法" },
     { "reject": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "vls", "weaponId": "asm-x", "count": 6, "trackId": "blue-T1" }, "because": "本平台没有航迹" },
@@ -17,7 +18,7 @@
 
     { "note": "推进到报文到达" },
     { "do": { "type": "ADVANCE", "stopAtNotable": true } },
-    { "expect": { "time": "08:00:02.001", "knows": { "blue-ddg-01": ["blue-T1"] }, "quality": { "blue-ddg-01.blue-T1": "WEAPON_SUPPORT" } } },
+    { "expect": { "time": "08:00:02.001", "knows": { "blue-ddg-01": ["blue-T1"] }, "track": { "blue-ddg-01.blue-T1": "LOCALIZED" }, "classification": { "blue-ddg-01.blue-T1": "ship" } } },
     { "do": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "vls", "weaponId": "asm-x", "count": 6, "trackId": "blue-T1" } },
     { "expect": { "ammo": { "blue-ddg-01.vls.asm-x": 10 }, "groupCount": { "blue-MG1": 6 } } },
 

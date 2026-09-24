@@ -2,16 +2,18 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { TacticalMap, type CameraMode } from '../renderer/TacticalMap.js';
 import { renderExplanation, type Explanation } from '../core/explain.js';
 import { formatClock, parseClock } from '../core/time.js';
-import { type TrackQuality, TRACK_QUALITIES, qualityAtLeast } from '../state/defs.js';
-import { length } from '../core/math/vec3.js';
-import type { Command, NotDetectedReason, Opportunity } from '../events/types.js';
+import { type Identity, type TargetCategory, IDENTITIES, TARGET_CATEGORIES } from '../state/defs.js';
+import { RAD, length } from '../core/math/vec3.js';
+import type { ClassificationRuling, Command, Decision, NotDetectedReason, Opportunity } from '../events/types.js';
+import type { ClassificationState, Track } from '../state/types.js';
 import { projectSideView } from '../state/view.js';
 import { rotate } from '../core/math/quat.js';
-import { groupPosition, orientationAt } from '../rules/world.js';
+import { groupPosition, orientationAt, trackCovarianceAt, trackPositionAt } from '../rules/world.js';
+import { describeMeasurement, ellipsoid95, fmtM } from '../rules/tracks.js';
 import { positionAt, velocityAt } from '../rules/kinematics.js';
 import type { AppStore } from './store.js';
 import { scenarios, scripts } from './content.js';
-import { QUALITY_ZH, STATUS_ZH, groupLabel, trackNumber } from './labels.js';
+import { CATEGORY_ZH, IDENTITY_ZH, SPATIAL_ZH, STATUS_ZH, groupLabel, trackNumber } from './labels.js';
 import type { MapEntity } from './mapModel.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
@@ -373,33 +375,84 @@ function OpportunityCard({ store, o }: { store: AppStore; o: Opportunity }) {
   );
 }
 
+const num = (x: string): number | undefined => (x.trim() === '' ? undefined : Number(x));
+
+function classificationText(c: ClassificationState): string {
+  const what = [c.label, c.category ? CATEGORY_ZH[c.category] : undefined].filter(Boolean).join(' / ') || '类别未定';
+  return `${what} · ${IDENTITY_ZH[c.identity]} · ${Math.round(c.confidence * 100)}%`;
+}
+
+function SpatialRows({ store, t }: { store: AppStore; t: Track }) {
+  const now = store.state.time;
+  if (t.spatial.kind === 'BEARING_ONLY')
+    return (
+      <>
+        <dt>方位</dt>
+        <dd>
+          {deg(t.spatial.direction).toFixed(1)}° ± {((t.spatial.angleSigmaRad / RAD) * 1.96).toPrecision(2)}°（95%，纯方位）
+        </dd>
+      </>
+    );
+  const pos = trackPositionAt(t, now)!;
+  const cov = trackCovarianceAt(store.ctx, t, now)!;
+  return (
+    <>
+      <dt>估计位置</dt>
+      <dd>{pos.map((x) => km(x)).join(', ')}</dd>
+      <dt>95% 椭球</dt>
+      <dd>
+        半轴 {ellipsoid95(cov).map(fmtM).join(' / ')}（观测时 {ellipsoid95(t.spatial.posCov).map(fmtM).join(' / ')}）
+      </dd>
+    </>
+  );
+}
+
 function DetectionForm({ store, o }: { store: AppStore; o: Extract<Opportunity, { kind: 'detection' }> }) {
-  const qualities = TRACK_QUALITIES.filter((q) => qualityAtLeast(q, 'DETECTED') && qualityAtLeast(o.maxQuality, q));
-  const [q, setQ] = useState<TrackQuality>(o.maxQuality);
-  const [cls, setCls] = useState('');
+  const bearing = o.measurement.kind === 'bearing';
+  const [existence, setExistence] = useState('1');
+  const [category, setCategory] = useState<TargetCategory | ''>('');
+  const [label, setLabel] = useState('');
+  const [identity, setIdentity] = useState<Identity>('unknown');
+  const [confidence, setConfidence] = useState('0.9');
+  const [offset, setOffset] = useState<Record<string, string>>({});
   const [corr, setCorr] = useState(o.sameAsTracks[0] ?? '');
   const [reason, setReason] = useState<NotDetectedReason>('clutter');
   const [note, setNote] = useState('');
   const observerTracks = Object.keys(store.state.knowledge[o.observerId] ?? {});
+  const axes: [string, string][] = bearing
+    ? [
+        ['azDeg', '方位 °（右正）'],
+        ['elDeg', '俯仰 °（上正）'],
+      ]
+    : [
+        ['radialM', '径向 m'],
+        ['crossM', '横向 m（右正）'],
+        ['upM', '垂向 m（上正）'],
+      ];
+  const offsetValues = Object.fromEntries(axes.map(([k]) => [k, num(offset[k] ?? '')]).filter(([, v]) => v !== undefined && v !== 0));
+  const classified = !!(category || label.trim() || identity !== 'unknown');
+  const classification: ClassificationRuling | undefined = classified
+    ? { ...(category ? { category } : {}), ...(label.trim() ? { label: label.trim() } : {}), identity, confidence: Number(confidence) }
+    : undefined;
+  const decision: Decision = {
+    kind: 'detection',
+    detected: true,
+    ...(num(existence) !== undefined && num(existence) !== 1 ? { existence: num(existence)! } : {}),
+    ...(Object.keys(offsetValues).length ? { offset: offsetValues } : {}),
+    ...(classification ? { classification } : {}),
+    ...(corr ? { correlateWith: corr } : {}),
+  };
+  const verdict = store.check({ type: 'RESOLVE', opportunityId: o.id, decision });
+  const failed = verdict.checks.filter((c) => c.ok === false);
+  const offsetCheck = verdict.checks.find((c) => c.label.startsWith('作者测量偏移'));
   return (
     <div className="form">
+      <div className="small muted">{describeMeasurement(o.measurement)} → {bearing ? '纯方位航迹' : '定位航迹'}</div>
       <div className="row wrap">
         <label>
-          质量
-          <select value={q} onChange={(e) => setQ(e.target.value as TrackQuality)}>
-            {qualities.map((x) => (
-              <option key={x} value={x}>
-                {QUALITY_ZH[x]} {x}
-              </option>
-            ))}
-          </select>
+          存在概率
+          <input className="narrow" value={existence} onChange={(e) => setExistence(e.target.value)} />
         </label>
-        {qualityAtLeast(q, 'CLASSIFIED') && (
-          <label>
-            识别为
-            <input value={cls} onChange={(e) => setCls(e.target.value)} placeholder="如：驱逐舰" />
-          </label>
-        )}
         {observerTracks.length > 0 && (
           <label>
             关联
@@ -415,15 +468,68 @@ function DetectionForm({ store, o }: { store: AppStore; o: Extract<Opportunity, 
           </label>
         )}
       </div>
+      <div className="row wrap">
+        <label>
+          类别
+          <select value={category} onChange={(e) => setCategory(e.target.value as TargetCategory | '')}>
+            <option value="">未定</option>
+            {TARGET_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_ZH[c]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          识别为
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="如：驱逐舰" />
+        </label>
+        <label>
+          敌我
+          <select value={identity} onChange={(e) => setIdentity(e.target.value as Identity)}>
+            {IDENTITIES.map((x) => (
+              <option key={x} value={x}>
+                {IDENTITY_ZH[x]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {classified && (
+          <label>
+            置信度
+            <input className="narrow" value={confidence} onChange={(e) => setConfidence(e.target.value)} />
+          </label>
+        )}
+      </div>
+      <div className="row wrap">
+        <span className="small muted">测量偏移（可选）</span>
+        {axes.map(([k, t]) => (
+          <label key={k}>
+            {t}
+            <input className="narrow" value={offset[k] ?? ''} onChange={(e) => setOffset({ ...offset, [k]: e.target.value })} />
+          </label>
+        ))}
+      </div>
+      {offsetCheck && (
+        <div className={`small ${offsetCheck.ok === false ? 'bad' : 'muted'}`}>
+          {offsetCheck.ok === false ? '✗ ' : '✓ '}
+          {offsetCheck.label}
+        </div>
+      )}
+      {failed.some((c) => c !== offsetCheck) && (
+        <div className="small bad">
+          ✗{' '}
+          {failed
+            .filter((c) => c !== offsetCheck)
+            .map((c) => c.label)
+            .join('；')}
+        </div>
+      )}
       <button
         className="primary"
-        onClick={() =>
-          store.dispatch({
-            type: 'RESOLVE',
-            opportunityId: o.id,
-            decision: { kind: 'detection', detected: true, quality: q, ...(cls ? { classification: cls } : {}), ...(corr ? { correlateWith: corr } : {}) },
-          })
-        }
+        disabled={!verdict.ok}
+        title={failed.map((c) => c.label).join('\n')}
+        onClick={() => store.dispatch({ type: 'RESOLVE', opportunityId: o.id, decision })}
       >
         探测到
       </button>
@@ -596,7 +702,9 @@ function DetailsPanel({ store }: { store: AppStore }) {
         {tracks.length === 0 && <div className="muted small">无</div>}
         {tracks.map((t) => (
           <div key={t.id} className="small clickable" onClick={() => store.select(`track:${t.id}`, true)}>
-            {trackLabel(store, t.id)} · {QUALITY_ZH[t.quality]} · {Object.keys(t.holds).length ? '保持中' : `${Math.round((s.time - t.lastUpdate) / 1000)} s 前`}
+            {trackLabel(store, t.id)} · {SPATIAL_ZH[t.spatial.kind]}
+            {t.classification ? ` · ${classificationText(t.classification)}` : ''} ·{' '}
+            {Object.keys(t.holds).length ? '保持中' : `${Math.round((s.time - t.observedAt) / 1000)} s 前`}
           </div>
         ))}
       </>
@@ -630,7 +738,7 @@ function DetailsPanel({ store }: { store: AppStore }) {
     // Freshest copy among platforms visible in this view.
     const holders = Object.entries(s.knowledge).filter(([uid, k]) => k[id] && (!sv || sv.units.some((u) => u.id === uid)));
     if (!holders.length) return null;
-    const t = holders.map(([, k]) => k[id]!).sort((a, b) => b.lastUpdate - a.lastUpdate)[0]!;
+    const t = holders.map(([, k]) => k[id]!).sort((a, b) => b.observedAt - a.observedAt)[0]!;
     const truth = store.view === 'god' ? s.truth.trackTargets[id] : undefined;
     body = (
       <>
@@ -638,35 +746,20 @@ function DetailsPanel({ store }: { store: AppStore }) {
           航迹 {trackLabel(store, t.id)} <span className="muted small">{t.id}</span>
         </h3>
         <dl>
-          <dt>质量</dt>
+          <dt>空间结构</dt>
+          <dd>{SPATIAL_ZH[t.spatial.kind]}</dd>
+          <dt>分类</dt>
+          <dd>{t.classification ? classificationText(t.classification) : '未分类'}</dd>
+          <dt>存在概率</dt>
+          <dd>{t.existence}</dd>
+          <dt>观测 / 接收</dt>
           <dd>
-            {QUALITY_ZH[t.quality]} {t.quality}
-          </dd>
-          {t.classification && (
-            <>
-              <dt>识别</dt>
-              <dd>{t.classification}</dd>
-            </>
-          )}
-          <dt>数据时刻</dt>
-          <dd>
-            {clock(t.lastUpdate)}（{Math.round((s.time - t.lastUpdate) / 1000)} s 前）
+            {clock(t.observedAt)}（{Math.round((s.time - t.observedAt) / 1000)} s 前）
+            {t.receivedAt !== t.observedAt && ` / ${clock(t.receivedAt)}`}
           </dd>
           <dt>持有平台</dt>
           <dd>{holders.map(([uid, k]) => `${s.units[uid]!.name}${Object.keys(k[id]!.holds).length ? '（保持）' : ''}`).join('，')}</dd>
-          {t.estimate.kind === 'position' ? (
-            <>
-              <dt>估计位置</dt>
-              <dd>
-                {t.estimate.position.map((x) => km(x)).join(', ')} ± {t.estimate.uncertaintyM} m
-              </dd>
-            </>
-          ) : (
-            <>
-              <dt>方位</dt>
-              <dd>{deg(t.estimate.direction).toFixed(1)}°（纯方位）</dd>
-            </>
-          )}
+          <SpatialRows store={store} t={t} />
           {truth && (
             <>
               <dt>真值（仅上帝）</dt>
@@ -806,6 +899,7 @@ function templates(store: AppStore): [string, Command][] {
     ['拦截', { type: 'ENGAGE', unitId, mountId: 'vls', weaponId: 'sam-std', trackId: firstTrack }],
     ['轴炮对准', { type: 'ALIGN', unitId, mountId: 'rail', trackId: firstTrack, priority: 1 }],
     ['规避', { type: 'MANEUVER', unitId, label: 'EVADE', priority: 10, durationS: 60 }],
+    ['分类', { type: 'CLASSIFY', unitId, trackId: firstTrack, classification: { category: 'ship', label: '', identity: 'hostile', confidence: 0.8 } }],
     ['数据链', { type: 'TRANSMIT', linkId: link?.id ?? '', from: unitId, to: link?.members.find((m) => m !== unitId) ?? '', trackId: firstTrack }],
     ['单位状态', { type: 'SET_UNIT_STATUS', unitId, status: 'damaged', note: '' }],
     ['备注', { type: 'NOTE', text: '' }],

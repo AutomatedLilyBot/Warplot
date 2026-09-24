@@ -30,8 +30,10 @@ export interface Expectation {
   ammo?: Record<string, number>;
   /** unit → exact list of track ids it knows. */
   knows?: Record<string, string[]>;
-  /** "unit.track" → quality. */
-  quality?: Record<string, string>;
+  /** "unit.track" → spatial structure (BEARING_ONLY / LOCALIZED). */
+  track?: Record<string, string>;
+  /** "unit.track" → classified category, or null for unclassified. */
+  classification?: Record<string, string | null>;
   /** group → remaining count (truth). */
   groupCount?: Record<string, number>;
   hits?: Record<string, number>;
@@ -185,9 +187,15 @@ function checkExpect(
     eq(`ammo ${key}`, s.units[u!]?.mounts[m!]?.ammo[w!] ?? 0, n);
   }
   for (const [u, ids] of Object.entries(e.knows ?? {})) eq(`knows ${u}`, Object.keys(s.knowledge[u] ?? {}).sort(), [...ids].sort());
-  for (const [key, q] of Object.entries(e.quality ?? {})) {
+  for (const [key, kind] of Object.entries(e.track ?? {})) {
     const [u, t] = key.split('.');
-    eq(`quality ${key}`, s.knowledge[u!]?.[t!]?.quality, q);
+    eq(`track ${key}`, s.knowledge[u!]?.[t!]?.spatial.kind, kind);
+  }
+  for (const [key, cat] of Object.entries(e.classification ?? {})) {
+    const [u, t] = key.split('.');
+    const tr = s.knowledge[u!]?.[t!];
+    if (!tr) fail(`no track ${key}`);
+    eq(`classification ${key}`, tr.classification?.category ?? null, cat);
   }
   for (const [g, n] of Object.entries(e.groupCount ?? {})) eq(`group ${g}`, s.groups[g]?.count, n);
   for (const [u, n] of Object.entries(e.hits ?? {})) eq(`hits ${u}`, s.units[u]?.hitsTaken, n);

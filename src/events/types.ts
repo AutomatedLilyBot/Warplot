@@ -1,7 +1,8 @@
 import type { SimTime } from '../core/time.js';
 import type { Explanation } from '../core/explain.js';
 import type { Vec3 } from '../core/math/vec3.js';
-import type { SideId, TrackQuality, UnitId, Waypoint } from '../state/defs.js';
+import type { Identity, MeasurementModel, SideId, TargetCategory, UnitId, Waypoint } from '../state/defs.js';
+import type { MeasurementOffset } from '../rules/tracks.js';
 import type { AttitudeConstraint, EntityId, GroupId, TrackId, UnitStatus } from '../state/types.js';
 
 // ---------------------------------------------------------------------------
@@ -32,17 +33,31 @@ export type Command =
     }
   | { type: 'RELEASE_CLAIM'; unitId: UnitId; claimId: string }
   | { type: 'RESOLVE'; opportunityId: string; decision: Decision }
+  /** Set or clear a platform's classification of a track (identification is independent of detection). */
+  | { type: 'CLASSIFY'; unitId: UnitId; trackId: TrackId; classification: ClassificationRuling | null; note?: string }
   | { type: 'SET_UNIT_STATUS'; unitId: UnitId; status: UnitStatus; note?: string }
   | { type: 'NOTE'; text: string };
 
 export type NotDetectedReason = 'clutter' | 'attention' | 'emission_control' | 'sensor_degradation' | 'other';
 
+/** Author's classification input; identity defaults to "unknown". */
+export interface ClassificationRuling {
+  category?: TargetCategory;
+  label?: string;
+  identity?: Identity;
+  /** 0–1. */
+  confidence: number;
+}
+
 export type Decision =
   | {
       kind: 'detection';
       detected: true;
-      quality: TrackQuality;
-      classification?: string;
+      /** Existence probability of the contact, (0, 1]; default 1 (or unchanged when correlating). */
+      existence?: number;
+      /** Author-chosen measurement offset; must lie inside the unbiased measurement's 95 % region. */
+      offset?: MeasurementOffset;
+      classification?: ClassificationRuling;
       /** Merge into an existing track of the observer instead of creating a new one. */
       correlateWith?: TrackId;
     }
@@ -70,7 +85,8 @@ export interface DetectionOpportunity extends OpportunityBase {
   observerId: UnitId;
   sensorId: string;
   target: EntityId;
-  maxQuality: TrackQuality;
+  /** What this sensor's measurement contains (bearing-only or position) and its 1σ errors. */
+  measurement: MeasurementModel;
   /** Author hint: observer tracks that truth-map to the same entity. */
   sameAsTracks: TrackId[];
 }
@@ -121,6 +137,7 @@ export type EventKind =
   | 'DETECTION'
   | 'DETECTION_DECLINED'
   | 'TRACK_LOST'
+  | 'TRACK_CLASSIFIED'
   | 'TRANSMIT'
   | 'DELIVERY'
   | 'LAUNCH'

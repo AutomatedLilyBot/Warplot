@@ -1,5 +1,8 @@
 [
-  { "id": "mfr", "name": "多功能雷达", "kind": "radar", "rangeM": 150000, "maxQuality": "FIRE_CONTROL", "emits": true, "uncertaintyM": 50, "reofferIntervalS": 60 },
-  { "id": "esm", "name": "电子支援侦察", "kind": "esm", "rangeM": 400000, "maxQuality": "BEARING_ONLY", "emits": false, "requiresTargetEmission": true, "uncertaintyM": 0, "reofferIntervalS": 120 },
-  { "id": "uav-radar", "name": "无人机对海雷达", "kind": "radar", "targetCategories": ["ship"], "rangeM": 120000, "maxQuality": "WEAPON_SUPPORT", "emits": true, "uncertaintyM": 200, "reofferIntervalS": 60 }
+  { "id": "mfr", "name": "多功能雷达", "kind": "radar", "rangeM": 150000, "emits": true, "reofferIntervalS": 60,
+    "measurement": { "kind": "position", "angleSigmaDeg": 0.03, "rangeSigmaM": 30, "velocitySigmaMps": 5 } },
+  { "id": "esm", "name": "电子支援侦察", "kind": "esm", "rangeM": 400000, "emits": false, "requiresTargetEmission": true, "reofferIntervalS": 120,
+    "measurement": { "kind": "bearing", "angleSigmaDeg": 1 } },
+  { "id": "uav-radar", "name": "无人机对海雷达", "kind": "radar", "targetCategories": ["ship"], "rangeM": 120000, "emits": true, "reofferIntervalS": 60,
+    "measurement": { "kind": "position", "angleSigmaDeg": 0.1, "rangeSigmaM": 100, "velocitySigmaMps": 10 } }
 ]

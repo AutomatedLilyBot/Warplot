@@ -8,36 +8,35 @@ import type { Quat } from '../core/math/quat.js';
 export type SideId = string;
 export type UnitId = string;
 
-/** Discrete track quality ladder. Order matters: later = better. */
-export const TRACK_QUALITIES = [
-  'NONE',
-  'DETECTED',
-  'BEARING_ONLY',
-  'LOCALIZED',
-  'CLASSIFIED',
-  'WEAPON_SUPPORT',
-  'FIRE_CONTROL',
-] as const;
-export type TrackQuality = (typeof TRACK_QUALITIES)[number];
-export const qualityRank = (q: TrackQuality): number => TRACK_QUALITIES.indexOf(q);
-export const qualityAtLeast = (q: TrackQuality, min: TrackQuality): boolean => qualityRank(q) >= qualityRank(min);
+export type TargetCategory = 'ship' | 'uav' | 'aew' | 'missile';
+export const TARGET_CATEGORIES: readonly TargetCategory[] = ['ship', 'uav', 'aew', 'missile'];
+
+export type Identity = 'hostile' | 'neutral' | 'friendly' | 'unknown';
+export const IDENTITIES: readonly Identity[] = ['hostile', 'neutral', 'friendly', 'unknown'];
+
+/**
+ * What one measurement of this sensor contains. Errors are 1σ of an unbiased
+ * measurement; the engine turns them into a covariance in the observation
+ * geometry and never samples them.
+ */
+export type MeasurementModel =
+  | { kind: 'bearing'; angleSigmaDeg: number }
+  | { kind: 'position'; angleSigmaDeg: number; rangeSigmaM: number; velocitySigmaMps: number };
 
 export interface SensorDef {
   id: string;
   name: string;
   kind: 'radar' | 'eo' | 'esm' | 'other';
   /** Target classes this sensor can search; omitted means all classes. */
-  targetCategories?: ('ship' | 'uav' | 'aew' | 'missile')[];
-  /** Nominal geometric detection range against a signature-1.0 target. */
+  targetCategories?: TargetCategory[];
+  /** Legacy placeholder: nominal geometric detection range against a signature-1.0 target. */
   rangeM: number;
-  /** Best track quality this sensor alone can establish. */
-  maxQuality: TrackQuality;
+  /** Measurement content and 1σ errors (bearing-only or full position). */
+  measurement: MeasurementModel;
   /** Radar-like sensors emit while on (makes the carrier detectable by ESM). */
   emits: boolean;
   /** ESM-like sensors can only detect targets that are emitting. */
   requiresTargetEmission?: boolean;
-  /** Position uncertainty reported on tracks this sensor holds. */
-  uncertaintyM: number;
   /** After a "not detected" ruling, how long before the same chance is offered again. */
   reofferIntervalS: number;
 }
@@ -51,9 +50,10 @@ export interface WeaponDef {
   speedMps: number;
   minRangeM: number;
   maxRangeM: number;
-  requiredQuality: TrackQuality;
-  /** Track may be at most this old (s) when the weapon is committed. */
-  maxTrackAgeS: number;
+  /** Target categories this weapon may be used against; the track must be classified accordingly. */
+  targetCategories?: TargetCategory[];
+  /** Minimum classification confidence for the category check (default 0). */
+  minClassificationConfidence?: number;
   /** Detectability multiplier of the weapon while in flight (for missile groups). */
   signature?: number;
   /** Anti-ship / gun: target must be within this radius of the aim point at arrival. */
@@ -123,7 +123,7 @@ export type ResourceDef =
 export interface UnitClassDef {
   id: string;
   name: string;
-  category: 'ship' | 'uav' | 'aew';
+  category: Exclude<TargetCategory, 'missile'>;
   maxSpeedMps: number;
   maxAccelMps2: number;
   /** Max attitude slew rate (deg/s) — the simplified attitude response. */
@@ -178,6 +178,12 @@ export interface ObstacleDef {
   radiusM: number;
 }
 
+/** Side-level rules of engagement. `tight`: only tracks identified hostile with enough confidence. */
+export interface RoeDef {
+  weaponsRelease: 'free' | 'tight';
+  minHostileConfidence?: number;
+}
+
 export interface Scenario {
   id: string;
   name: string;
@@ -190,6 +196,13 @@ export interface Scenario {
   obstacles: ObstacleDef[];
   units: UnitSetup[];
   datalinks: DatalinkDef[];
+  /** Rules of engagement per side; a side without an entry is weapons-free. */
+  roe?: Record<SideId, RoeDef>;
+  /**
+   * Track prediction: unknown target manoeuvre as a velocity random walk —
+   * 1σ velocity change accumulated per minute (m/s per √min).
+   */
+  trackPrediction?: { velocityDriftMpsPerMin: number };
 }
 
 export interface Catalog {

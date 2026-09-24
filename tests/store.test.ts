@@ -51,6 +51,12 @@ describe('browser session store', () => {
     badRedo.session.seq = 1;
     badRedo.session.branches.main.redo = ['n1', 'n1'];
     expect(() => store.importSession(JSON.stringify(badRedo))).toThrow(/redo/);
+
+    const legacy = structuredClone(base);
+    legacy.session.nodes.n1 = { id: 'n1', parent: null, command: { type: 'RESOLVE', opportunityId: 'blue-OPP1', decision: { kind: 'detection', detected: true, quality: 'FIRE_CONTROL' } } };
+    legacy.session.seq = 1;
+    legacy.session.branches.main.head = 'n1';
+    expect(() => store.importSession(JSON.stringify(legacy))).toThrow(/旧版会话格式/);
     expect(store.exportSession()).toBe(before);
   });
 

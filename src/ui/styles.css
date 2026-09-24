@@ -76,6 +76,8 @@ h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
 .row + .row, .row + input, .form > * + * { margin-top: 6px; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
+.bad { color: var(--error); }
+input.narrow { width: 5.5em; }
 .big { font-size: 16px; }
 .warn-text { color: var(--warn); }
 .clickable { cursor: pointer; }

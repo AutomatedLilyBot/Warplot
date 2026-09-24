@@ -7,7 +7,6 @@ import type { SimTime } from '../core/time.js';
 import type { EntityId, WorldState } from '../state/types.js';
 import { type Ctx, allEntityIds, classOf, entityInfo, sensorDef } from '../rules/world.js';
 import { nextDetectable, nextUndetectable } from '../rules/detection.js';
-import { qualityAtLeast } from '../state/defs.js';
 
 export type Scheduled =
   | { kind: 'delivery'; time: SimTime; messageId: string }
@@ -33,7 +32,7 @@ export const pairKey = (unitId: string, sensorId: string, target: EntityId) => `
 
 const keyOf = (x: Scheduled): string => JSON.stringify(x);
 
-/** Entities this unit currently holds, with best quality per entity. */
+/** Entities this unit currently holds, with the holding sensors per entity. */
 export function heldEntities(s: WorldState, unitId: string): Map<EntityId, { trackId: string; sensors: string[] }> {
   const out = new Map<EntityId, { trackId: string; sensors: string[] }>();
   for (const tr of Object.values(s.knowledge[unitId] ?? {})) {
@@ -95,11 +94,9 @@ export function scheduleNext(ctx: Ctx, s: WorldState, horizon: SimTime): Schedul
         if (info.side === u.side) continue;
         const h = held.get(target);
         if (h?.sensors.includes(sensorId)) continue;
-        // Already held at least as well as this sensor could offer → no new chance worth pausing for.
-        if (h) {
-          const tr = s.knowledge[u.id]![h.trackId]!;
-          if (qualityAtLeast(tr.quality, sd.maxQuality)) continue;
-        }
+        // Already held with at least this sensor's structure (a bearing sensor adds nothing to a held
+        // contact; a position sensor adds nothing once another position sensor holds it) → no pause.
+        if (h && (sd.measurement.kind === 'bearing' || h.sensors.some((sid) => sensorDef(ctx, sid).measurement.kind === 'position'))) continue;
         const key = pairKey(u.id, sensorId, target);
         if (pendingPairs.has(key)) continue;
         const last = s.lastOffered[key];

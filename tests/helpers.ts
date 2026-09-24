@@ -6,7 +6,7 @@ import { buildCatalog, asScenario } from '../src/state/load.js';
 import type { Ctx } from '../src/rules/world.js';
 import type { Scenario, UnitSetup } from '../src/state/defs.js';
 import { Session } from '../src/events/session.js';
-import type { Command, Opportunity } from '../src/events/types.js';
+import type { ClassificationRuling, Command, Opportunity } from '../src/events/types.js';
 import { renderExplanation } from '../src/core/explain.js';
 
 export const catalog = buildCatalog({ sensors, weapons, unitClasses });
@@ -57,8 +57,20 @@ export function pending(session: Session): Opportunity[] {
   return Object.values(session.state.opportunities).filter((o) => o.status === 'pending');
 }
 
-/** Resolve every pending detection as "detected" at the sensor's max quality. */
+/** Truth-correct classification of an entity (tests may classify with perfect knowledge). */
+export function truthClassification(session: Session, target: string): ClassificationRuling {
+  const u = session.state.units[target];
+  const category = u ? session.ctx.catalog.unitClasses[u.classId]!.category : 'missile';
+  return { category, identity: 'hostile', confidence: 1 };
+}
+
+/** Resolve every pending detection as "detected", unbiased and correctly classified. */
 export function detectAll(session: Session): void {
   for (const o of pending(session))
-    if (o.kind === 'detection') must(session, { type: 'RESOLVE', opportunityId: o.id, decision: { kind: 'detection', detected: true, quality: o.maxQuality } });
+    if (o.kind === 'detection')
+      must(session, {
+        type: 'RESOLVE',
+        opportunityId: o.id,
+        decision: { kind: 'detection', detected: true, classification: truthClassification(session, o.target) },
+      });
 }

@@ -16,14 +16,10 @@ export function groupLabel(groupId: string): string {
   return m ? m[1]! : groupId;
 }
 
-export const QUALITY_ZH: Record<string, string> = {
-  NONE: '无',
-  DETECTED: '发现',
-  BEARING_ONLY: '纯方位',
-  LOCALIZED: '定位',
-  CLASSIFIED: '识别',
-  WEAPON_SUPPORT: '武器级',
-  FIRE_CONTROL: '火控级',
-};
+export const SPATIAL_ZH: Record<string, string> = { BEARING_ONLY: '纯方位', LOCALIZED: '定位' };
+
+export const IDENTITY_ZH: Record<string, string> = { hostile: '敌对', neutral: '中立', friendly: '友方', unknown: '敌我不明' };
+
+export const CATEGORY_ZH: Record<string, string> = { ship: '舰船', uav: '无人机', aew: '预警机', missile: '导弹' };
 
 export const STATUS_ZH: Record<string, string> = { active: '正常', damaged: '受损', disabled: '失能', destroyed: '被毁' };
