@@ -113,13 +113,13 @@ describe('bearing-only knowledge', () => {
     const s = new Session(ctx);
     must(s, { type: 'ADVANCE' });
     const o = pending(s).find((x) => x.kind === 'detection' && x.observerId === 'b1')!;
-    must(s, { type: 'RESOLVE', opportunityId: o.id, decision: { kind: 'detection', detected: true, quality: 'BEARING_ONLY' } });
+    must(s, { type: 'RESOLVE', opportunityId: o.id, decision: { kind: 'detection', detected: true, classification: { category: 'ship', identity: 'hostile', confidence: 1 } } });
     const tr = s.state.knowledge['b1']!['blue-T1']!;
-    expect(tr.estimate.kind).toBe('bearing');
-    if (tr.estimate.kind !== 'bearing') throw new Error();
-    expect(tr.estimate.direction[0]).toBeCloseTo(Math.SQRT1_2);
+    expect(tr.spatial.kind).toBe('BEARING_ONLY');
+    if (tr.spatial.kind !== 'BEARING_ONLY') throw new Error();
+    expect(tr.spatial.direction[0]).toBeCloseTo(Math.SQRT1_2);
     const v = s.check({ type: 'LAUNCH', unitId: 'b1', mountId: 'vls', weaponId: 'asm-x', count: 1, trackId: 'blue-T1' });
-    expect(JSON.stringify(v.checks.filter((c) => c.ok === false))).toContain('非纯方位');
+    expect(JSON.stringify(v.checks.filter((c) => c.ok === false))).toContain('定位航迹');
   });
 });
 

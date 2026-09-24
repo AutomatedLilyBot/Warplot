@@ -4,7 +4,7 @@
   "scenario": "axial_duel.json",
   "steps": [
     { "do": { "type": "ADVANCE" } },
-    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL" } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "classification": { "category": "ship", "label": "驱逐舰", "identity": "hostile", "confidence": 0.9 } } } },
 
     { "note": "目标在左舷正横：轴炮无法射击" },
     { "reject": { "type": "LAUNCH", "unitId": "blue-ddg-01", "mountId": "rail", "weaponId": "rail-slug", "count": 3, "trackId": "blue-T1" }, "because": "轴线误差" },

@@ -15,8 +15,11 @@ describe('catalog validation', () => {
 
   test.each([
     ['duplicate id', () => ({ sensors: [...sensors, sensors[0]], weapons, unitClasses }), /duplicate sensor/],
-    ['bad sensor quality', () => ({ sensors: [{ ...sensors[0], maxQuality: 'GOOD' }], weapons, unitClasses }), /maxQuality/],
-    ['bad weapon quality', () => ({ sensors, weapons: [{ ...weapons[0], requiredQuality: 'X' }], unitClasses }), /requiredQuality/],
+    ['bad measurement kind', () => ({ sensors: [{ ...sensors[0], measurement: { kind: 'range', angleSigmaDeg: 1 } }], weapons, unitClasses }), /measurement.kind/],
+    ['zero angle sigma', () => ({ sensors: [{ ...sensors[0], measurement: { kind: 'bearing', angleSigmaDeg: 0 } }], weapons, unitClasses }), /angleSigmaDeg/],
+    ['missing range sigma', () => ({ sensors: [{ ...sensors[0], measurement: { kind: 'position', angleSigmaDeg: 1, velocitySigmaMps: 1 } }], weapons, unitClasses }), /rangeSigmaM/],
+    ['bad weapon target category', () => ({ sensors, weapons: [{ ...weapons[0], targetCategories: ['tank'] }], unitClasses }), /targetCategories/],
+    ['bad classification confidence', () => ({ sensors, weapons: [{ ...weapons[0], minClassificationConfidence: 1.5 }], unitClasses }), /minClassificationConfidence/],
     ['unknown sensor on class', () => ({ sensors: sensors.slice(1), weapons, unitClasses }), /unknown sensor/],
     ['unknown weapon on mount', () => ({ sensors, weapons: weapons.slice(1), unitClasses }), /unknown weapon/],
     [

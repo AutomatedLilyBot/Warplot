@@ -5,6 +5,8 @@ import type { SimTime } from '../core/time.js';
 import type { Catalog, MountDef, Scenario, SensorDef, UnitClassDef, WeaponDef } from '../state/defs.js';
 import type { EntityId, MissileGroupState, Track, UnitState, WorldState } from '../state/types.js';
 import { maxSpeedOf, positionAt, velocityAt } from './kinematics.js';
+import type { Mat3 } from '../core/math/mat3.js';
+import { DEFAULT_VELOCITY_DRIFT_MPS_PER_MIN, type TrackEstimate, predictedCovariance, predictedPosition } from './tracks.js';
 
 export interface Ctx {
   scenario: Scenario;
@@ -118,13 +120,14 @@ export function slewCompleteAt(ctx: Ctx, u: UnitState): SimTime {
 
 export const trackOf = (s: WorldState, unitId: string, trackId: string): Track | undefined => s.knowledge[unitId]?.[trackId];
 
-/** Best-guess position of a track at time t (dead-reckoned). Null for bearing-only tracks. */
-export function trackPositionAt(tr: Track, t: SimTime): Vec3 | null {
-  if (tr.estimate.kind !== 'position') return null;
-  const dt = (t - tr.lastUpdate) / 1000;
-  const e = tr.estimate;
-  return [e.position[0] + e.velocity[0] * dt, e.position[1] + e.velocity[1] * dt, e.position[2] + e.velocity[2] * dt];
-}
+/** Best-guess (mean) position of a track at time t (dead-reckoned). Null for bearing-only tracks. */
+export const trackPositionAt = (tr: TrackEstimate, t: SimTime): Vec3 | null => predictedPosition(tr, t);
+
+/** Scenario-wide unknown-manoeuvre level used for track extrapolation. */
+export const velocityDrift = (ctx: Ctx): number => ctx.scenario.trackPrediction?.velocityDriftMpsPerMin ?? DEFAULT_VELOCITY_DRIFT_MPS_PER_MIN;
+
+/** Position covariance of a track extrapolated to time t. Null for bearing-only tracks. */
+export const trackCovarianceAt = (ctx: Ctx, tr: TrackEstimate, t: SimTime): Mat3 | null => predictedCovariance(tr, t, velocityDrift(ctx));
 
 /**
  * Lead-pursuit aim point: where the track is predicted to be when a projectile

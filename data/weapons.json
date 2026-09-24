@@ -2,27 +2,24 @@
   {
     "id": "asm-x", "name": "ASM-X 反舰导弹", "role": "anti_ship",
     "speedMps": 290, "minRangeM": 5000, "maxRangeM": 250000,
-    "requiredQuality": "WEAPON_SUPPORT", "maxTrackAgeS": 300,
+    "targetCategories": ["ship"], "minClassificationConfidence": 0.5,
     "signature": 0.15, "seekerBasketM": 8000, "terminalBounds": [0, 1]
   },
   {
     "id": "sam-std", "name": "SAM-STD 舰空导弹", "role": "sam",
     "speedMps": 1000, "minRangeM": 3000, "maxRangeM": 120000,
-    "requiredQuality": "FIRE_CONTROL", "maxTrackAgeS": 5,
-    "engagementCycleS": 8, "salvoPerEngagement": 2, "killBounds": [0.3, 0.8],
+    "targetCategories": ["missile"], "engagementCycleS": 8, "salvoPerEngagement": 2, "killBounds": [0.3, 0.8],
     "fireControlChannels": 1, "illuminatorTimeS": 6
   },
   {
     "id": "ciws-burst", "name": "近防炮点射", "role": "ciws",
     "speedMps": 1100, "minRangeM": 300, "maxRangeM": 3500,
-    "requiredQuality": "FIRE_CONTROL", "maxTrackAgeS": 5,
-    "engagementCycleS": 3, "salvoPerEngagement": 1, "killBounds": [0.2, 0.7],
+    "targetCategories": ["missile"], "engagementCycleS": 3, "salvoPerEngagement": 1, "killBounds": [0.2, 0.7],
     "fireControlChannels": 0
   },
   {
     "id": "rail-slug", "name": "轴线电磁炮弹", "role": "gun",
     "speedMps": 2500, "minRangeM": 1000, "maxRangeM": 60000,
-    "requiredQuality": "FIRE_CONTROL", "maxTrackAgeS": 10,
-    "signature": 0.02, "seekerBasketM": 150, "terminalBounds": [0, 0.5]
+    "targetCategories": ["ship"], "signature": 0.02, "seekerBasketM": 150, "terminalBounds": [0, 0.5]
   }
 ]

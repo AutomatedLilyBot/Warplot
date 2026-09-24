@@ -6,7 +6,8 @@ import type { Vec3 } from '../core/math/vec3.js';
 import type { Quat } from '../core/math/quat.js';
 import type { SimTime } from '../core/time.js';
 import type { Explanation } from '../core/explain.js';
-import type { SideId, TrackQuality, UnitId, Waypoint } from './defs.js';
+import type { Mat3 } from '../core/math/mat3.js';
+import type { Identity, SideId, TargetCategory, UnitId, Waypoint } from './defs.js';
 import type { SimEvent, Opportunity } from '../events/types.js';
 
 export type TrackId = string;
@@ -102,24 +103,49 @@ export interface MissileGroupState {
   launchEventId: string;
 }
 
-export type TrackEstimate =
-  | { kind: 'position'; position: Vec3; velocity: Vec3; uncertaintyM: number }
-  | { kind: 'bearing'; origin: Vec3; direction: Vec3 };
+/**
+ * Spatial state of a track. Only two structures exist; how good a fix is
+ * lives in the covariance, not in a discrete grade.
+ */
+export type TrackSpatial =
+  /** Line of sight from `origin`; isotropic 1σ angular error. */
+  | { kind: 'BEARING_ONLY'; origin: Vec3; direction: Vec3; angleSigmaRad: number }
+  /** Position/velocity estimate with covariances (m², (m/s)²) valid at `observedAt`. */
+  | { kind: 'LOCALIZED'; position: Vec3; velocity: Vec3; posCov: Mat3; velCov: Mat3 };
+
+/** What the side believes the contact is — independent of how well it is located. */
+export interface ClassificationState {
+  category?: TargetCategory;
+  label?: string;
+  identity: Identity;
+  /** Confidence in this classification, 0–1. */
+  confidence: number;
+}
+
+/**
+ * One own sensor currently holding the contact. `offsetW` is the author's
+ * measurement offset in whitened coordinates (units of σ along the
+ * measurement axes: [radial, cross, up] or [azimuth, elevation]); it stays
+ * inside the 95 % region as the geometry changes.
+ */
+export interface SensorHold {
+  offsetW: number[];
+}
 
 /** What one platform believes about one contact. Never contains truth ids. */
 export interface Track {
   id: TrackId;
   side: SideId;
-  quality: TrackQuality;
-  estimate: TrackEstimate;
-  lastUpdate: SimTime;
-  classification?: string;
-  /**
-   * Own sensors currently holding the contact, with the quality each one was
-   * granted. While non-empty the estimate refreshes at every event boundary and
-   * the effective quality is the max over holds.
-   */
-  holds: Record<string, TrackQuality>;
+  /** Probability that the contact exists (author-ruled for now). */
+  existence: number;
+  spatial: TrackSpatial;
+  classification: ClassificationState | null;
+  /** Time the underlying observation describes. */
+  observedAt: SimTime;
+  /** Time this platform received it (later than observedAt for datalink copies). */
+  receivedAt: SimTime;
+  /** Own sensors currently holding the contact. While non-empty the estimate refreshes at every event boundary. */
+  holds: Record<string, SensorHold>;
   /** Events that established / updated this platform's copy (detection, delivery...). */
   provenance: string[];
 }

@@ -9,7 +9,8 @@ import type { SimTime } from '../core/time.js';
 import type { SideId } from './defs.js';
 import type { Engagement, PendingMessage, ResourceClaim, Track, UnitStatus, WorldState } from './types.js';
 import type { EventBody, EventKind, Opportunity } from '../events/types.js';
-import { type Ctx, groupPosition, orientationAt, trackPositionAt } from '../rules/world.js';
+import { type Ctx, groupPosition, orientationAt, trackCovarianceAt, trackPositionAt } from '../rules/world.js';
+import { ellipsoid95 } from '../rules/tracks.js';
 import { positionAt, velocityAt } from '../rules/kinematics.js';
 
 export interface OwnUnitView {
@@ -38,9 +39,14 @@ export interface OwnGroupView {
   status: string;
 }
 
-export interface TrackView extends Track {
-  /** Dead-reckoned position at view time (null for bearing tracks). */
+export interface TrackView extends Omit<Track, 'holds'> {
+  /** Own sensors holding the contact. The author's measurement offsets are not part of the side's knowledge. */
+  holds: string[];
+  /** Dead-reckoned mean position at view time (null for bearing tracks). */
   positionNow: Vec3 | null;
+  /** 95 % ellipsoid semi-axes (m) of the extrapolated position at view time (null for bearing tracks). */
+  sigma95NowM: Vec3 | null;
+  /** Time since the observation the track describes. */
   ageS: number;
 }
 
@@ -99,11 +105,16 @@ export function projectSideView(ctx: Ctx, s: WorldState, side: SideId): SideView
 
   const tracks: Record<string, TrackView[]> = {};
   for (const u of units) {
-    tracks[u.id] = Object.values(s.knowledge[u.id] ?? {}).map((tr) => ({
-      ...structuredClone(tr),
-      positionNow: trackPositionAt(tr, s.time),
-      ageS: (s.time - tr.lastUpdate) / 1000,
-    }));
+    tracks[u.id] = Object.values(s.knowledge[u.id] ?? {}).map((tr) => {
+      const cov = trackCovarianceAt(ctx, tr, s.time);
+      return {
+        ...structuredClone({ ...tr, holds: undefined }),
+        holds: Object.keys(tr.holds).sort(),
+        positionNow: trackPositionAt(tr, s.time),
+        sigma95NowM: cov ? ellipsoid95(cov) : null,
+        ageS: (s.time - tr.observedAt) / 1000,
+      };
+    });
   }
 
   // Re-number visible events so gaps in ids don't reveal hidden activity.

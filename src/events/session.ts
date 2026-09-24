@@ -176,6 +176,8 @@ export class Session {
       const node = copy.nodes[id];
       if (!node || node.id !== id || !node.command || typeof node.command.type !== 'string')
         throw new Error(`invalid session node ${id}`);
+      if (node.command.type === 'RESOLVE' && node.command.decision && 'quality' in node.command.decision)
+        throw new Error(`旧版会话格式：节点 ${id} 的探测裁定使用已删除的航迹质量等级（quality），无法按新的不确定度模型重放`);
       if (visiting.has(id)) throw new Error(`cycle in session nodes at ${id}`);
       visiting.add(id);
       if (node.parent !== null) visit(node.parent);

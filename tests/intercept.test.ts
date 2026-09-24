@@ -17,7 +17,7 @@ function raid(blueHeading: number) {
   expect(opp.kind).toBe('detection');
   if (opp.kind !== 'detection') throw new Error();
   expect(opp.observerId).toBe('b1');
-  must(s, { type: 'RESOLVE', opportunityId: opp.id, decision: { kind: 'detection', detected: true, quality: 'FIRE_CONTROL' } });
+  must(s, { type: 'RESOLVE', opportunityId: opp.id, decision: { kind: 'detection', detected: true, classification: { category: 'missile', identity: 'hostile', confidence: 1 } } });
   const missileTrack = Object.values(s.state.knowledge['b1']!).find((t) => s.state.truth.trackTargets[t.id] === 'red-MG1')!.id;
   return { ctx, s, missileTrack };
 }
@@ -75,6 +75,15 @@ describe('interception bounds', () => {
     must(side.s, { type: 'ENGAGE', unitId: 'b1', mountId: 'ciws', weaponId: 'ciws-burst', trackId: side.missileTrack });
     const eng = Object.values(side.s.state.engagements)[0]!;
     expect((eng.window.end - eng.window.start) / 1000).toBeCloseTo((3500 - 300) / 290, 0);
+  });
+
+  test('weapons without fire-control channels refuse more than one engagement channel', () => {
+    const { s, missileTrack } = raid(90);
+    const cmd = { type: 'ENGAGE', unitId: 'b1', mountId: 'ciws', weaponId: 'ciws-burst', trackId: missileTrack } as const;
+    const v = s.check({ ...cmd, channels: 3 });
+    expect(v.ok).toBe(false);
+    expect(JSON.stringify(v.checks)).toContain('每个发射装置只有 1 个交战通道');
+    expect(s.check({ ...cmd, channels: 1 }).ok).toBe(true);
   });
 
   test('full raid: intercept then impact, author picks within bounds; inventory is conserved', () => {

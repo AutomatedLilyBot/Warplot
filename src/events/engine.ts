@@ -9,13 +9,13 @@
  */
 import { type Explanation, check, info, allOk } from '../core/explain.js';
 import { type SimTime, formatClock, parseClock } from '../core/time.js';
-import { length, normalize, sub } from '../core/math/vec3.js';
+import { length } from '../core/math/vec3.js';
 import { quatFromHeading, type Quat } from '../core/math/quat.js';
-import { type TrackQuality, TRACK_QUALITIES, qualityAtLeast, qualityRank } from '../state/defs.js';
-import { validateScenario } from '../state/load.js';
-import type { MissileGroupState, ResourceClaim, Track, UnitState, WorldState } from '../state/types.js';
+import { isCategory, isIdentity, validateScenario } from '../state/load.js';
+import type { ClassificationState, MissileGroupState, ResourceClaim, Track, UnitState, WorldState } from '../state/types.js';
 import type {
   ApplyResult,
+  ClassificationRuling,
   Command,
   Decision,
   EventBody,
@@ -37,8 +37,9 @@ import {
 } from '../rules/world.js';
 import { planRoute, positionAt, stationaryPlan, velocityAt } from '../rules/kinematics.js';
 import { detectability } from '../rules/detection.js';
+import { describeMeasurement, describeSpatial, fmtM, measureTrack, observationFrame, whitenOffset } from '../rules/tracks.js';
 import { checkTransmit } from '../rules/comms.js';
-import { checkEngage, checkLaunch, impactBounds } from '../rules/weapons.js';
+import { checkEngage, checkLaunch, formatP, impactBounds } from '../rules/weapons.js';
 import { checkExclusiveFree, planAttitudeClaim, refreshAttitudeGoal, resumeSuspended } from '../rules/resources.js';
 import { attitudeClaims } from '../rules/attitude.js';
 import { type Scheduled, pairKey, scheduleNext } from './scheduler.js';
@@ -150,26 +151,46 @@ const body = (action: string, summary: string, extra: Partial<EventBody> = {}): 
   ...extra,
 });
 
-function effectiveQuality(tr: Track): TrackQuality {
-  const qs = Object.values(tr.holds);
-  if (!qs.length) return tr.quality;
-  return qs.reduce((a, b) => (qualityRank(b) > qualityRank(a) ? b : a));
-}
-
-/** Re-derive a held track's estimate from truth at the current time. */
+/** Re-measure a held track at the current time from its holding sensors (unbiased mean + author offsets). */
 function refreshTrack(ctx: Ctx, s: WorldState, observer: UnitState, tr: Track): void {
   const target = s.truth.trackTargets[tr.id];
-  if (!target || !Object.keys(tr.holds).length) return;
-  tr.quality = effectiveQuality(tr);
-  const pos = entityPosition(s, target, s.time);
-  if (qualityAtLeast(tr.quality, 'LOCALIZED')) {
-    const unc = Math.min(...Object.keys(tr.holds).map((sid) => sensorDef(ctx, sid).uncertaintyM));
-    tr.estimate = { kind: 'position', position: pos, velocity: entityVelocity(s, target, s.time), uncertaintyM: unc };
-  } else {
-    const origin = positionAt(observer.motion, s.time);
-    tr.estimate = { kind: 'bearing', origin, direction: normalize(sub(pos, origin)) };
-  }
-  tr.lastUpdate = s.time;
+  const sensors = Object.keys(tr.holds).sort();
+  if (!target || !sensors.length) return;
+  tr.spatial = measureTrack(
+    positionAt(observer.motion, s.time),
+    entityPosition(s, target, s.time),
+    entityVelocity(s, target, s.time),
+    sensors.map((sid) => ({ sensor: sensorDef(ctx, sid), hold: tr.holds[sid]! })),
+  );
+  tr.observedAt = s.time;
+  tr.receivedAt = s.time;
+}
+
+const spatialKind = (tr: Track) => tr.spatial.kind;
+
+function toClassification(c: ClassificationRuling): ClassificationState {
+  return {
+    ...(c.category !== undefined ? { category: c.category } : {}),
+    ...(c.label ? { label: c.label } : {}),
+    identity: c.identity ?? 'unknown',
+    confidence: c.confidence,
+  };
+}
+
+export function describeClassification(c: ClassificationState | null): string {
+  if (!c) return '未分类';
+  const what = [c.label, c.category].filter(Boolean).join(' / ') || '类别未定';
+  return `${what} · ${IDENTITY_ZH[c.identity]} · 置信度 ${c.confidence}`;
+}
+
+const IDENTITY_ZH: Record<ClassificationState['identity'], string> = { hostile: '敌对', neutral: '中立', friendly: '友方', unknown: '敌我不明' };
+
+function classificationChecks(c: ClassificationRuling): Explanation[] {
+  return [
+    check('分类置信度 ∈ [0, 1]', Number.isFinite(c.confidence) && c.confidence >= 0 && c.confidence <= 1),
+    ...(c.category !== undefined ? [check(`目标类别 ${c.category} 有效`, isCategory(c.category))] : []),
+    ...(c.identity !== undefined ? [check(`敌我属性 ${c.identity} 有效`, isIdentity(c.identity))] : []),
+  ];
 }
 
 /** Jump to time t: refresh held tracks and attitude goals (the only time-dependent stored data). */
@@ -297,6 +318,12 @@ function validateInner(ctx: Ctx, s: WorldState, cmd: Command): Verdict {
     }
     case 'RESOLVE':
       return validateResolve(ctx, s, cmd.opportunityId, cmd.decision);
+    case 'CLASSIFY': {
+      const c = unitChecks(s, cmd.unitId);
+      c.push(check(`${cmd.unitId} 掌握航迹 ${cmd.trackId}`, !!trackOf(s, cmd.unitId, cmd.trackId)));
+      if (cmd.classification) c.push(...classificationChecks(cmd.classification));
+      return verdict(c);
+    }
     case 'SET_UNIT_STATUS':
       return verdict([check(`单位 ${cmd.unitId} 存在`, !!s.units[cmd.unitId])]);
     case 'NOTE':
@@ -312,12 +339,10 @@ function validateResolve(ctx: Ctx, s: WorldState, oppId: string, d: Decision): V
   c.push(check(`裁定类型匹配（${o.kind}）`, o.kind === d.kind));
   if (!allOk(c)) return verdict(c);
   if (o.kind === 'detection' && d.kind === 'detection' && d.detected) {
-    c.push(
-      check(
-        `航迹质量 ${d.quality} ∈ [DETECTED, ${o.maxQuality}]`,
-        TRACK_QUALITIES.includes(d.quality) && qualityAtLeast(d.quality, 'DETECTED') && qualityAtLeast(o.maxQuality, d.quality),
-      ),
-    );
+    if (d.existence !== undefined)
+      c.push(check(`存在概率 ${d.existence} ∈ (0, 1]`, Number.isFinite(d.existence) && d.existence > 0 && d.existence <= 1));
+    if (d.classification) c.push(...classificationChecks(d.classification));
+    if (d.offset) c.push(offsetCheck(ctx, s, o, d.offset));
     if (d.correlateWith) c.push(check(`关联航迹 ${d.correlateWith} 属于观测平台`, !!trackOf(s, o.observerId, d.correlateWith)));
   }
   const inBounds = (n: number, b: { min: number; max: number }) =>
@@ -325,6 +350,27 @@ function validateResolve(ctx: Ctx, s: WorldState, oppId: string, d: Decision): V
   if (o.kind === 'intercept' && d.kind === 'intercept') c.push(inBounds(d.intercepted, currentInterceptBounds(s, o)));
   if (o.kind === 'impact' && d.kind === 'impact') c.push(inBounds(d.hits, o.bounds));
   return verdict(c);
+}
+
+/** The author offset must stay inside the 95 % region of the unbiased measurement. */
+function offsetCheck(
+  ctx: Ctx,
+  s: WorldState,
+  o: Extract<Opportunity, { kind: 'detection' }>,
+  offset: NonNullable<Extract<Decision, { kind: 'detection'; detected: true }>['offset']>,
+): Explanation {
+  const u = s.units[o.observerId]!;
+  const m = sensorDef(ctx, o.sensorId).measurement;
+  const range = observationFrame(positionAt(u.motion, s.time), entityPosition(s, o.target, s.time)).rangeM;
+  const values = Object.values(offset);
+  if (!values.every((x) => x === undefined || Number.isFinite(x))) return check('测量偏移为有限值', false);
+  const r = whitenOffset(m, range, offset);
+  if (r.wrongAxes.length)
+    return check(`${m.kind === 'bearing' ? '纯方位测量只能偏移 azDeg / elDeg' : '定位测量只能偏移 radialM / crossM / upM'}（收到 ${r.wrongAxes.join(', ')}）`, false);
+  const dof = m.kind === 'bearing' ? 2 : 3;
+  return check(`作者测量偏移 χ² = ${r.chi2.toFixed(3)} ≤ χ²${dof === 2 ? '₂' : '₃'},0.95 = ${r.limit.toFixed(3)}（95% 置信区域内）`, r.chi2 <= r.limit, {
+    children: [info(describeMeasurement(m)), info(`观测距离 ${(range / 1000).toFixed(1)} km`)],
+  });
 }
 
 /** Intercept bounds re-clamped to the group's count at resolution time. */
@@ -452,6 +498,7 @@ const HANDLERS: { [K in Command['type']]: Handler<K> } = {
       for (const tr of Object.values(s.knowledge[u.id]!))
         if (tr.holds[cmd.sensorId]) {
           delete tr.holds[cmd.sensorId];
+          refreshTrack(ctx, s, u, tr);
           lost.push(tr.id);
         }
     const b = body('SET_SENSOR', `${u.name} ${sensorDef(ctx, cmd.sensorId).name} ${cmd.on ? '开机' : '关机'}`, {
@@ -465,8 +512,8 @@ const HANDLERS: { [K in Command['type']]: Handler<K> } = {
     const r = checkTransmit(ctx, s, cmd);
     const from = s.units[cmd.from]!;
     const tr = trackOf(s, cmd.from, cmd.trackId)!;
-    const snapshot: Track = { ...structuredClone(tr), holds: {}, quality: effectiveQuality(tr) };
-    const b = body('TRANSMIT', `${from.name} 经 ${cmd.linkId} 向 ${s.units[cmd.to]!.name} 发送航迹 ${tr.id}（${snapshot.quality}），${clk(ctx, r.deliverAt!)} 到达`, {
+    const snapshot: Track = { ...structuredClone(tr), holds: {} };
+    const b = body('TRANSMIT', `${from.name} 经 ${cmd.linkId} 向 ${s.units[cmd.to]!.name} 发送航迹 ${tr.id}（${describeSpatial(tr.spatial)}），${clk(ctx, r.deliverAt!)} 到达`, {
       actor: from.id,
       target: cmd.to,
       requires: [{ label: `${from.id} 掌握 ${tr.id}` }, ...tr.provenance.map((ref) => ({ label: `航迹来源`, ref }))],
@@ -504,12 +551,15 @@ const HANDLERS: { [K in Command['type']]: Handler<K> } = {
       target: tr.id,
       requires: [
         ...tr.provenance.map((ref) => ({ label: '航迹来源', ref })),
-        { label: `航迹质量 ${tr.quality} ≥ ${w.requiredQuality}` },
+        { label: `航迹 ${describeSpatial(tr.spatial)}，数据时刻 ${clk(ctx, tr.observedAt)}` },
         { label: `库存 ${before} → ${before - cmd.count}` },
         { label: `${cmd.mountId} 可用` },
       ],
-      produces: [{ label: `弹群 ${gid}` }],
-      data: { groupId: gid, count: cmd.count, launchTime: plan.launchTime, arrivalTime: plan.arrivalTime, checks: r.checks },
+      produces: [
+        { label: `弹群 ${gid}` },
+        { label: `（提示）到达时目标落入导引头捕获区 ${fmtM(plan.acquisition.basketM)} 的概率 ≈ ${formatP(plan.acquisition.p)}` },
+      ],
+      data: { groupId: gid, count: cmd.count, launchTime: plan.launchTime, arrivalTime: plan.arrivalTime, acquisition: plan.acquisition, checks: r.checks },
     });
     const ev = emit(s, ci, { kind: 'LAUNCH', truth: b, sides: { [u.side]: b }, causedBy: tr.provenance.slice() });
     const g: MissileGroupState = {
@@ -632,6 +682,20 @@ const HANDLERS: { [K in Command['type']]: Handler<K> } = {
     else resolveImpact(ctx, s, o, (cmd.decision as Extract<Decision, { kind: 'impact' }>).hits, cmd.decision, ci);
   },
 
+  CLASSIFY(ctx, s, cmd, ci) {
+    const u = s.units[cmd.unitId]!;
+    const tr = trackOf(s, u.id, cmd.trackId)!;
+    const prev = describeClassification(tr.classification);
+    tr.classification = cmd.classification ? toClassification(cmd.classification) : null;
+    const b = body('CLASSIFY', `${u.name} 将航迹 ${tr.id} 分类为：${describeClassification(tr.classification)}（原：${prev}）${cmd.note ? `；${cmd.note}` : ''}`, {
+      actor: u.id,
+      target: tr.id,
+      data: { classification: tr.classification },
+    });
+    const ev = emit(s, ci, { kind: 'TRACK_CLASSIFIED', truth: b, sides: { [u.side]: b }, causedBy: tr.provenance.slice(-1) });
+    tr.provenance = [...tr.provenance, ev.id];
+  },
+
   SET_UNIT_STATUS(ctx, s, cmd, ci) {
     const u = s.units[cmd.unitId]!;
     const prev = u.status;
@@ -699,12 +763,12 @@ function processScheduled(ctx: Ctx, s: WorldState, it: Scheduled, ci: number): {
       const to = s.units[m.to]!;
       const kb = s.knowledge[to.id]!;
       const existing = kb[m.track.id];
-      const stale = !!existing && existing.lastUpdate >= m.track.lastUpdate;
+      const stale = !!existing && existing.observedAt >= m.track.observedAt;
       const b = body(
         'DELIVERY',
         stale
           ? `${to.name} 收到航迹 ${m.track.id}，但本地数据更新，忽略`
-          : `${to.name} 收到航迹 ${m.track.id}（${m.track.quality}，数据时刻 ${clk(ctx, m.track.lastUpdate)}）`,
+          : `${to.name} 收到航迹 ${m.track.id}（${describeSpatial(m.track.spatial)}，数据时刻 ${clk(ctx, m.track.observedAt)}）`,
         {
           actor: m.to,
           target: m.track.id,
@@ -716,6 +780,7 @@ function processScheduled(ctx: Ctx, s: WorldState, it: Scheduled, ci: number): {
       if (!stale) {
         kb[m.track.id] = {
           ...structuredClone(m.track),
+          receivedAt: s.time,
           holds: existing?.holds ?? {},
           provenance: [...new Set([...(existing?.provenance ?? []), ...m.track.provenance, m.sendEventId, ev.id])],
         };
@@ -740,7 +805,7 @@ function processScheduled(ctx: Ctx, s: WorldState, it: Scheduled, ci: number): {
       const target = s.truth.trackTargets[tr.id]!;
       const why = detectability(ctx, s, u, it.sensorId, target, s.time).checks.filter((c) => c.ok === false);
       delete tr.holds[it.sensorId];
-      tr.quality = effectiveQuality(tr);
+      refreshTrack(ctx, s, u, tr);
       const sd = sensorDef(ctx, it.sensorId);
       const b = body('TRACK_LOST', `${u.name} ${sd.name} 失去对 ${tr.id} 的保持`, {
         actor: u.id,
@@ -784,7 +849,7 @@ function createDetectionOpportunity(ctx: Ctx, s: WorldState, it: Extract<Schedul
     .map((tr) => tr.id);
   const targetName = s.units[it.target]?.name ?? it.target;
   const explanation = info(`${u.name} 的 ${sd.name} 现在有可能探测到 ${targetName}`, {
-    children: [...det.checks, info(`可建立的最高航迹质量: ${sd.maxQuality}`), ...(same.length ? [info(`（作者提示）真值上与本平台航迹 ${same.join(', ')} 为同一目标`)] : [])],
+    children: [...det.checks, info(`${describeMeasurement(sd.measurement)} → ${sd.measurement.kind === 'bearing' ? '纯方位航迹' : '定位航迹'}`), ...(same.length ? [info(`（作者提示）真值上与本平台航迹 ${same.join(', ')} 为同一目标`)] : [])],
   });
   const id = newOppId(s, u.side);
   const ev = emit(s, ci, {
@@ -807,7 +872,7 @@ function createDetectionOpportunity(ctx: Ctx, s: WorldState, it: Extract<Schedul
     observerId: u.id,
     sensorId: it.sensorId,
     target: it.target,
-    maxQuality: sd.maxQuality,
+    measurement: sd.measurement,
     sameAsTracks: same,
   };
   return true;
@@ -837,23 +902,32 @@ function resolveDetection(
   const tr: Track = existing ?? {
     id: trackId,
     side: u.side,
-    quality: d.quality,
-    estimate: { kind: 'bearing', origin: [0, 0, 0], direction: [1, 0, 0] },
-    lastUpdate: s.time,
+    existence: 1,
+    spatial: { kind: 'BEARING_ONLY', origin: [0, 0, 0], direction: [1, 0, 0], angleSigmaRad: 1 },
+    classification: null,
+    observedAt: s.time,
+    receivedAt: s.time,
     holds: {},
     provenance: [],
   };
-  tr.holds[o.sensorId] = d.quality;
-  if (d.classification && qualityAtLeast(d.quality, 'CLASSIFIED')) tr.classification = d.classification;
+  const range = observationFrame(positionAt(u.motion, s.time), entityPosition(s, o.target, s.time)).rangeM;
+  const offset = d.offset ? whitenOffset(sd.measurement, range, d.offset) : null;
+  tr.holds[o.sensorId] = { offsetW: offset ? offset.w : sd.measurement.kind === 'bearing' ? [0, 0] : [0, 0, 0] };
+  if (d.existence !== undefined) tr.existence = d.existence;
+  if (d.classification) tr.classification = toClassification(d.classification);
   kb[trackId] = tr;
   s.truth.trackTargets[trackId] = o.target;
   refreshTrack(ctx, s, u, tr);
-  const b = body('DETECTION', `${u.name} ${sd.name} ${existing ? '更新' : '建立'}航迹 ${trackId}（${tr.quality}）`, {
+  const extras = [
+    ...(offset && offset.chi2 > 0 ? [`作者测量偏移 χ² ${offset.chi2.toFixed(2)}`] : []),
+    ...(tr.classification ? [describeClassification(tr.classification)] : []),
+  ];
+  const b = body('DETECTION', `${u.name} ${sd.name} ${existing ? '更新' : '建立'}航迹 ${trackId}（${describeSpatial(tr.spatial)}${extras.length ? `；${extras.join('；')}` : ''}）`, {
     actor: u.id,
     target: trackId,
     requires: [{ label: `${sd.name} 开机且几何可探测`, ref: o.eventId }, { label: '作者裁定: 探测成功' }],
-    produces: [{ label: `${u.id} 航迹 ${trackId} (${tr.quality})` }],
-    data: { sensorId: o.sensorId, quality: tr.quality, classification: tr.classification },
+    produces: [{ label: `${u.id} 航迹 ${trackId} (${spatialKind(tr)})` }],
+    data: { sensorId: o.sensorId, spatial: spatialKind(tr), existence: tr.existence, offsetChi2: offset?.chi2 ?? 0, classification: tr.classification },
   });
   const ev = emit(s, ci, {
     kind: 'DETECTION',

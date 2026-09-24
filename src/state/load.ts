@@ -1,5 +1,5 @@
 /** Build a Catalog from plain JSON arrays and sanity-check cross references. */
-import { type Catalog, type Scenario, type SensorDef, type UnitClassDef, type WeaponDef, TRACK_QUALITIES } from './defs.js';
+import { type Catalog, type Scenario, type SensorDef, type UnitClassDef, type WeaponDef, IDENTITIES, TARGET_CATEGORIES } from './defs.js';
 
 const finite = (n: number) => Number.isFinite(n);
 const positive = (n: number) => finite(n) && n > 0;
@@ -9,6 +9,9 @@ const vector = (v: readonly number[]) => Array.isArray(v) && v.length === 3 && v
 const requireValue = (ok: boolean, label: string): void => {
   if (!ok) throw new Error(`invalid ${label}`);
 };
+const probability = (n: number) => finite(n) && n >= 0 && n <= 1;
+const categories = (xs: unknown) =>
+  Array.isArray(xs) && xs.length > 0 && xs.every((c) => (TARGET_CATEGORIES as readonly unknown[]).includes(c));
 const bounds = (b: [number, number]) => Array.isArray(b) && b.length === 2 && b.every((n) => nonnegative(n) && n <= 1) && b[0] <= b[1];
 
 export function buildCatalog(raw: { sensors: unknown[]; weapons: unknown[]; unitClasses: unknown[] }): Catalog {
@@ -24,19 +27,23 @@ export function buildCatalog(raw: { sensors: unknown[]; weapons: unknown[]; unit
   const weapons = byId(raw.weapons as WeaponDef[], 'weapon');
   const unitClasses = byId(raw.unitClasses as UnitClassDef[], 'unit class');
   for (const s of Object.values(sensors)) {
-    if (!TRACK_QUALITIES.includes(s.maxQuality)) throw new Error(`sensor ${s.id}: bad maxQuality ${s.maxQuality}`);
-    if (s.targetCategories !== undefined)
-      requireValue(Array.isArray(s.targetCategories) && s.targetCategories.length > 0 &&
-        s.targetCategories.every((category) => ['ship', 'uav', 'aew', 'missile'].includes(category)), `sensor ${s.id}.targetCategories`);
+    if (s.targetCategories !== undefined) requireValue(categories(s.targetCategories), `sensor ${s.id}.targetCategories`);
     requireValue(positive(s.rangeM), `sensor ${s.id}.rangeM`);
-    requireValue(nonnegative(s.uncertaintyM), `sensor ${s.id}.uncertaintyM`);
+    const m = s.measurement;
+    requireValue(!!m && (m.kind === 'bearing' || m.kind === 'position'), `sensor ${s.id}.measurement.kind`);
+    requireValue(positive(m.angleSigmaDeg) && m.angleSigmaDeg < 90, `sensor ${s.id}.measurement.angleSigmaDeg`);
+    if (m.kind === 'position') {
+      requireValue(positive(m.rangeSigmaM), `sensor ${s.id}.measurement.rangeSigmaM`);
+      requireValue(positive(m.velocitySigmaMps), `sensor ${s.id}.measurement.velocitySigmaMps`);
+    }
     requireValue(positive(s.reofferIntervalS), `sensor ${s.id}.reofferIntervalS`);
   }
   for (const w of Object.values(weapons)) {
-    if (!TRACK_QUALITIES.includes(w.requiredQuality)) throw new Error(`weapon ${w.id}: bad requiredQuality`);
     requireValue(positive(w.speedMps), `weapon ${w.id}.speedMps`);
     requireValue(nonnegative(w.minRangeM) && positive(w.maxRangeM) && w.maxRangeM >= w.minRangeM, `weapon ${w.id}.range`);
-    requireValue(nonnegative(w.maxTrackAgeS), `weapon ${w.id}.maxTrackAgeS`);
+    if (w.targetCategories !== undefined) requireValue(categories(w.targetCategories), `weapon ${w.id}.targetCategories`);
+    if (w.minClassificationConfidence !== undefined)
+      requireValue(probability(w.minClassificationConfidence), `weapon ${w.id}.minClassificationConfidence`);
     if (w.signature !== undefined) requireValue(nonnegative(w.signature), `weapon ${w.id}.signature`);
     if (w.seekerBasketM !== undefined) requireValue(nonnegative(w.seekerBasketM), `weapon ${w.id}.seekerBasketM`);
     if (w.terminalBounds !== undefined) requireValue(bounds(w.terminalBounds), `weapon ${w.id}.terminalBounds`);
@@ -80,6 +87,13 @@ export function validateScenario(s: Scenario): void {
     requireValue(vector(o.center), `obstacle ${o.id}.center`);
     requireValue(nonnegative(o.radiusM), `obstacle ${o.id}.radiusM`);
   }
+  for (const [side, roe] of Object.entries(s.roe ?? {})) {
+    requireValue(s.sides.some((sd) => sd.id === side), `roe ${side}: unknown side`);
+    requireValue(roe.weaponsRelease === 'free' || roe.weaponsRelease === 'tight', `roe ${side}.weaponsRelease`);
+    if (roe.minHostileConfidence !== undefined) requireValue(probability(roe.minHostileConfidence), `roe ${side}.minHostileConfidence`);
+  }
+  if (s.trackPrediction !== undefined)
+    requireValue(nonnegative(s.trackPrediction.velocityDriftMpsPerMin), `scenario ${s.id}.trackPrediction.velocityDriftMpsPerMin`);
   for (const link of s.datalinks) {
     requireValue(nonnegative(link.latencyS), `datalink ${link.id}.latencyS`);
     if (link.maxRangeM !== undefined) requireValue(nonnegative(link.maxRangeM), `datalink ${link.id}.maxRangeM`);
@@ -98,5 +112,8 @@ export function validateScenario(s: Scenario): void {
     }
   }
 }
+
+export const isIdentity = (x: unknown): boolean => (IDENTITIES as readonly unknown[]).includes(x);
+export const isCategory = (x: unknown): boolean => (TARGET_CATEGORIES as readonly unknown[]).includes(x);
 
 export const asScenario = (raw: unknown): Scenario => raw as Scenario;

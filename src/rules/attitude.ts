@@ -41,7 +41,7 @@ export function resolveConstraint(
     if (tr) {
       const p = trackPositionAt(tr, t);
       if (p) dir = normalize(sub(p, positionAt(u.motion, t)));
-      else if (tr.estimate.kind === 'bearing') dir = normalize(tr.estimate.direction);
+      else if (tr.spatial.kind === 'BEARING_ONLY') dir = normalize(tr.spatial.direction);
     }
   }
   if (!dir) return null;

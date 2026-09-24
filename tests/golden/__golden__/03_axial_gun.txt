@@ -5,12 +5,12 @@ scenario: axial_duel.json
 > ADVANCE {}
 [10:00:00] E2        DETECTION_OPPORTUNITY  10:00:00 Blue-DDG-01 有可能探测到 Red-DDG-01（多功能雷达）
 [10:00:00] E3        TIME_ADVANCED          时间推进 10:00:00 → 10:00:00（出现待裁定机会）
-> RESOLVE {"opportunityId":"blue-OPP1","decision":{"kind":"detection","detected":true,"quality":"FIRE_CONTROL"}}
-[10:00:00] E4        DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL） = Red-DDG-01
+> RESOLVE {"opportunityId":"blue-OPP1","decision":{"kind":"detection","detected":true,"classification":{"category":"ship","label":"驱逐舰","identity":"hostile","confidence":0.9}}}
+[10:00:00] E4        DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（定位 95% 半轴 83.9 m/58.5 m/58.5 m；驱逐舰 / ship · 敌对 · 置信度 0.9） = Red-DDG-01
             ← E2
             需要: 多功能雷达 开机且几何可探测 (E2)
             需要: 作者裁定: 探测成功
-            产生: blue-ddg-01 航迹 blue-T1 (FIRE_CONTROL)
+            产生: blue-ddg-01 航迹 blue-T1 (LOCALIZED)
 
 ## 目标在左舷正横：轴炮无法射击
 > LAUNCH {"unitId":"blue-ddg-01","mountId":"rail","weaponId":"rail-slug","count":3,"trackId":"blue-T1"}  —— 预期被拒绝
@@ -53,10 +53,11 @@ scenario: axial_duel.json
 [10:00:49.334] E13       LAUNCH                 Blue-DDG-01 舰首轴线电磁炮 向航迹 blue-T1 发射 3 × 轴线电磁炮弹，10:01:05.334 到达
             ← E4
             需要: 航迹来源 (E4)
-            需要: 航迹质量 FIRE_CONTROL ≥ FIRE_CONTROL
+            需要: 航迹 定位 95% 半轴 83.9 m/58.5 m/58.5 m，数据时刻 10:00:49.334
             需要: 库存 40 → 37
             需要: rail 可用
             产生: 弹群 blue-MG1
+            产生: （提示）到达时目标落入导引头捕获区 150 m 的概率 ≈ 63.5%
 
 ## 炮弹 16 秒后到达
 > ADVANCE {}
@@ -79,7 +80,7 @@ scenario: axial_duel.json
 
 ### 蓝方视角事件
 [10:00:00] blue-E1   SCENARIO_START         想定开始: 轴炮对决（演示）
-[10:00:00] blue-E2   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（FIRE_CONTROL）
+[10:00:00] blue-E2   DETECTION              Blue-DDG-01 多功能雷达 建立航迹 blue-T1（定位 95% 半轴 83.9 m/58.5 m/58.5 m；驱逐舰 / ship · 敌对 · 置信度 0.9）
 [10:00:00] blue-E3   CLAIM_ADDED            Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 占用 hull_attitude（优先级 1）
 [10:00:10] blue-E4   CLAIM_ADDED            EVADE missile_group_04 占用 hull_attitude（优先级 10）
 [10:00:10] blue-E5   CLAIM_SUSPENDED        Blue-DDG-01.舰首轴线电磁炮 ALIGN_TO blue-T1 被 EVADE missile_group_04 挂起（优先级 1 < 10）

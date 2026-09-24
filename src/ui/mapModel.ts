@@ -7,7 +7,9 @@
 import type { Vec3 } from '../core/math/vec3.js';
 import { rotate } from '../core/math/quat.js';
 import type { Ctx } from '../rules/world.js';
-import { groupPosition, orientationAt, trackPositionAt } from '../rules/world.js';
+import { groupPosition, orientationAt, trackCovarianceAt, trackPositionAt } from '../rules/world.js';
+import { RAD } from '../core/math/vec3.js';
+import { ellipsoid95, fmtM } from '../rules/tracks.js';
 import { positionAt } from '../rules/kinematics.js';
 import type { MotionPlan, Track, WorldState } from '../state/types.js';
 import { projectSideView } from '../state/view.js';
@@ -78,29 +80,40 @@ function unitRoute(plan: MotionPlan, now: number): Vec3[] | undefined {
   return samplePlan(plan, now, plan.arrivesAt);
 }
 
-function trackEntity(tr: Track, now: number, tone: string, extra = ''): MapEntity {
+type PictureTrack = Pick<Track, 'id' | 'spatial' | 'classification' | 'observedAt'>;
+
+/** Short sublabel: classification if any, else the spatial structure with its current uncertainty. */
+function trackSublabel(ctx: Ctx, tr: PictureTrack, now: number): string {
+  const c = tr.classification;
+  if (c && (c.label || c.category)) return c.label ?? c.category!;
+  if (tr.spatial.kind === 'BEARING_ONLY') return `BRG ±${((tr.spatial.angleSigmaRad / RAD) * 1.96).toPrecision(2)}°`;
+  const cov = trackCovarianceAt(ctx, tr, now)!;
+  return `LOC ±${fmtM(ellipsoid95(cov)[0])}`;
+}
+
+function trackEntity(ctx: Ctx, tr: PictureTrack, now: number, tone: string, extra = ''): MapEntity {
   const num = trackNumber(tr.id);
   const pos = trackPositionAt(tr, now);
-  const age = Math.round((now - tr.lastUpdate) / 1000);
+  const age = Math.round((now - tr.observedAt) / 1000);
   return {
     key: `track:${tr.id}`,
     kind: 'track',
     tone,
     category: 'contact',
     label: `${extra}${num}`,
-    sublabel: `${tr.classification ?? tr.quality}${age > 0 ? ` · ${age}s` : ''}`,
+    sublabel: `${trackSublabel(ctx, tr, now)}${age > 0 ? ` · ${age}s` : ''}`,
     position: pos,
-    ...(tr.estimate.kind === 'bearing' ? { bearing: { origin: tr.estimate.origin, dir: tr.estimate.direction } } : {}),
+    ...(tr.spatial.kind === 'BEARING_ONLY' ? { bearing: { origin: tr.spatial.origin, dir: tr.spatial.direction } } : {}),
   };
 }
 
 /** Freshest copy of each track across a set of platforms. */
-function mergePicture(tracksByPlatform: Track[][]): Track[] {
-  const best = new Map<string, Track>();
+function mergePicture<T extends PictureTrack>(tracksByPlatform: T[][]): T[] {
+  const best = new Map<string, T>();
   for (const list of tracksByPlatform)
     for (const tr of list) {
       const cur = best.get(tr.id);
-      if (!cur || tr.lastUpdate > cur.lastUpdate) best.set(tr.id, tr);
+      if (!cur || tr.observedAt > cur.observedAt) best.set(tr.id, tr);
     }
   return [...best.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -149,7 +162,7 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
       for (const side of ctx.scenario.sides) {
         const own = Object.values(s.units).filter((u) => u.side === side.id);
         for (const tr of mergePicture(own.map((u) => Object.values(s.knowledge[u.id] ?? {}))))
-          entities.push({ ...trackEntity(tr, now, 'contact', `${side.name} `), key: `track:${tr.id}` });
+          entities.push({ ...trackEntity(ctx, tr, now, 'contact', `${side.name} `), key: `track:${tr.id}` });
       }
     return { view, time: now, entities, obstacles };
   }
@@ -185,6 +198,6 @@ export function buildMapModel(ctx: Ctx, history: WorldState[], view: ViewId, opt
       flightLine: [truth.origin, truth.aimPoint],
     });
   }
-  for (const tr of mergePicture(Object.values(sv.tracks))) entities.push(trackEntity(tr, now, 'contact'));
+  for (const tr of mergePicture(Object.values(sv.tracks))) entities.push(trackEntity(ctx, tr, now, 'contact'));
   return { view, time: now, entities, obstacles };
 }

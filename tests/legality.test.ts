@@ -31,17 +31,14 @@ describe('illegal actions are refused with reasons', () => {
     expect(s.canUndo()).toBe(false);
   });
 
-  test('inventory, launcher busy, range, quality, wrong weapon, wrong mount', () => {
+  test('inventory, launcher busy, range, bearing-only, wrong weapon, wrong mount', () => {
     const { s } = duel();
     must(s, { type: 'ADVANCE', until: 1000 });
-    // Resolve: radar → FIRE_CONTROL track blue-T?; ESM gives bearing-only. Resolve radar first.
-    for (const o of pending(s)) {
-      if (o.kind !== 'detection') continue;
-      must(s, { type: 'RESOLVE', opportunityId: o.id, decision: { kind: 'detection', detected: true, quality: o.maxQuality } });
-    }
+    // Radar → localized track; ESM → bearing-only track (separate, not correlated).
+    detectAll(s);
     const tracks = s.state.knowledge['b1']!;
-    const fc = Object.values(tracks).find((t) => t.quality === 'FIRE_CONTROL')!;
-    const brg = Object.values(tracks).find((t) => t.quality === 'BEARING_ONLY')!;
+    const fc = Object.values(tracks).find((t) => t.spatial.kind === 'LOCALIZED')!;
+    const brg = Object.values(tracks).find((t) => t.spatial.kind === 'BEARING_ONLY')!;
     const L = (x: Partial<Extract<Command, { type: 'LAUNCH' }>>): Command => ({
       type: 'LAUNCH',
       unitId: 'b1',
@@ -53,7 +50,7 @@ describe('illegal actions are refused with reasons', () => {
     });
 
     expect(failed(s, L({ count: 17 })).join()).toContain('库存');
-    expect(failed(s, L({ trackId: brg.id })).join()).toMatch(/航迹质量|非纯方位/);
+    expect(failed(s, L({ trackId: brg.id })).join()).toContain('定位航迹');
     expect(failed(s, L({ weaponId: 'rail-slug' })).join()).toContain('可发射');
     expect(failed(s, L({ mountId: 'ciws', weaponId: 'ciws-burst' })).join()).toContain('用途匹配');
     expect(failed(s, L({ weaponId: 'sam-std' })).join()).toContain('用途匹配');
@@ -69,7 +66,7 @@ describe('illegal actions are refused with reasons', () => {
     const { s } = duel();
     must(s, { type: 'ADVANCE', until: 1000 });
     detectAll(s);
-    const trackId = Object.values(s.state.knowledge['b1']!).find((t) => t.quality === 'FIRE_CONTROL')!.id;
+    const trackId = Object.values(s.state.knowledge['b1']!).find((t) => t.spatial.kind === 'LOCALIZED')!.id;
     const before = JSON.stringify(s.state);
     for (const count of [1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       const cmd = { type: 'LAUNCH', unitId: 'b1', mountId: 'vls', weaponId: 'asm-x', count, trackId } as const;
@@ -86,21 +83,24 @@ describe('illegal actions are refused with reasons', () => {
     const { s } = duel(4000); // closer than asm-x min range 5 km
     must(s, { type: 'ADVANCE', until: 1000 });
     detectAll(s);
-    const tr = Object.values(s.state.knowledge['b1']!).find((t) => t.quality === 'FIRE_CONTROL')!;
+    const tr = Object.values(s.state.knowledge['b1']!).find((t) => t.spatial.kind === 'LOCALIZED')!;
     expect(failed(s, { type: 'LAUNCH', unitId: 'b1', mountId: 'vls', weaponId: 'asm-x', count: 1, trackId: tr.id }).join()).toContain('预测命中点距离');
   });
 
-  test('stale track is refused by weapons with a short max track age', () => {
+  test('a stale track stays legal; only the advisory capture probability falls', () => {
     const { s } = duel(100_000);
     must(s, { type: 'ADVANCE', until: 1000 });
     detectAll(s);
-    const tr = Object.values(s.state.knowledge['b1']!).find((t) => t.quality === 'FIRE_CONTROL')!;
+    const tr = Object.values(s.state.knowledge['b1']!).find((t) => t.spatial.kind === 'LOCALIZED')!;
+    const cmd = { type: 'LAUNCH', unitId: 'b1', mountId: 'vls', weaponId: 'asm-x', count: 1, trackId: tr.id } as const;
+    const hint = (v: ReturnType<typeof s.check>) => Number(/概率 ≈ ([\d.]+)%/.exec(v.checks.find((c) => c.label.includes('（提示）'))!.label)?.[1]);
+    const fresh = s.check(cmd);
+    expect(fresh.ok).toBe(true);
     must(s, { type: 'SET_SENSOR', unitId: 'b1', sensorId: 'mfr', on: false });
-    must(s, { type: 'ADVANCE', until: 20_000 });
-    // rail-slug requires a track ≤ 10 s old; the radar is off so the track is now 19 s old.
-    expect(failed(s, { type: 'LAUNCH', unitId: 'b1', mountId: 'rail', weaponId: 'rail-slug', count: 1, trackId: tr.id }).join()).toContain('航迹时龄');
-    // asm-x tolerates 300 s, so the same track is still good enough for it.
-    expect(s.check({ type: 'LAUNCH', unitId: 'b1', mountId: 'vls', weaponId: 'asm-x', count: 1, trackId: tr.id }).ok).toBe(true);
+    must(s, { type: 'ADVANCE', until: 600_000 });
+    const stale = s.check(cmd);
+    expect(stale.ok).toBe(true);
+    expect(hint(stale)).toBeLessThan(hint(fresh));
   });
 
   test('RESOLVE outside the legal interval is refused', () => {
@@ -109,8 +109,15 @@ describe('illegal actions are refused with reasons', () => {
     const o = pending(s).find((x) => x.kind === 'detection')!;
     expect(failed(s, { type: 'RESOLVE', opportunityId: o.id, decision: { kind: 'impact', hits: 1 } }).join()).toContain('裁定类型');
     if (o.kind !== 'detection') throw new Error();
-    const tooGood = o.sensorId === 'esm' ? 'LOCALIZED' : 'FIRE_CONTROL';
-    if (o.sensorId === 'esm')
-      expect(failed(s, { type: 'RESOLVE', opportunityId: o.id, decision: { kind: 'detection', detected: true, quality: tooGood } }).join()).toContain('航迹质量');
+    const R = (offset: Record<string, number>): Command => ({ type: 'RESOLVE', opportunityId: o.id, decision: { kind: 'detection', detected: true, offset } });
+    if (o.sensorId === 'esm') {
+      expect(failed(s, R({ radialM: 10 })).join()).toContain('纯方位测量只能偏移');
+      expect(failed(s, R({ azDeg: 2.5 })).join()).toContain('95% 置信区域'); // χ² = 6.25 > 5.991
+      expect(s.check(R({ azDeg: 2.4 })).ok).toBe(true); // χ² = 5.76
+    } else {
+      expect(failed(s, R({ azDeg: 1 })).join()).toContain('定位测量只能偏移');
+      expect(failed(s, R({ radialM: 30 * 2.8 })).join()).toContain('95% 置信区域'); // χ² = 7.84 > 7.815
+      expect(s.check(R({ radialM: 30 * 2.79 })).ok).toBe(true); // χ² = 7.78
+    }
   });
 });

@@ -6,15 +6,15 @@
     { "note": "开局：双方雷达互相发现" },
     { "do": { "type": "ADVANCE" } },
     { "expect": { "pending": ["blue-OPP1", "red-OPP1"] } },
-    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL", "classification": "驱逐舰" } } },
-    { "do": { "type": "RESOLVE", "opportunityId": "red-OPP1", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL", "classification": "驱逐舰" } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP1", "decision": { "kind": "detection", "detected": true, "classification": { "category": "ship", "label": "驱逐舰", "identity": "hostile", "confidence": 0.9 } } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "red-OPP1", "decision": { "kind": "detection", "detected": true, "classification": { "category": "ship", "label": "驱逐舰", "identity": "hostile", "confidence": 0.9 } } } },
 
     { "note": "红方齐射" },
     { "do": { "type": "LAUNCH", "unitId": "red-ddg-01", "mountId": "vls", "weaponId": "asm-x", "count": 8, "trackId": "red-T1" } },
     { "expect": { "sideExcludes": { "blue": ["red-MG1"] } } },
     { "do": { "type": "ADVANCE" } },
     { "expect": { "pending": ["blue-OPP2"] } },
-    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP2", "decision": { "kind": "detection", "detected": true, "quality": "FIRE_CONTROL", "classification": "反舰导弹群" } } },
+    { "do": { "type": "RESOLVE", "opportunityId": "blue-OPP2", "decision": { "kind": "detection", "detected": true, "classification": { "category": "missile", "label": "反舰导弹群", "identity": "hostile", "confidence": 0.95 } } } },
 
     { "note": "第一层：舰空导弹" },
     { "do": { "type": "ENGAGE", "unitId": "blue-ddg-01", "mountId": "vls", "weaponId": "sam-std", "trackId": "blue-T2" } },
