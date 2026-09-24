@@ -9,7 +9,7 @@ import { demoCtx, ddg, detectAll, miniCtx, must, pending } from './helpers.js';
 import type { Ctx } from '../src/rules/world.js';
 import { groupPosition } from '../src/rules/world.js';
 import { positionAt } from '../src/rules/kinematics.js';
-import { timelineMarks } from '../src/ui/timeline.js';
+import { timelineMarks } from '../src/ui/timelineMarks.js';
 
 const history = (s: Session) => [s.stateAt(null), ...s.path(s.branch.head).map((n) => s.stateAt(n.id))];
 
